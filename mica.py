@@ -200,7 +200,6 @@ def on_text(link, text):
 
     if s == -1:
         cmd = "connect"
-        print("On connect, text=%s and clipped, %s" % (text, text[:len(cmd)]))
         if text[:len(cmd)] == cmd:
             try_login(link, text[len(cmd)+1:])
         else:
@@ -221,7 +220,6 @@ def on_disconnection(old_link):
 
 def try_login(link, args):
     # TODO: allow double-quote parsing? Maybe?
-    print("try_login: got %s" % args)
     args = args.split(' ')
     if len(args) != 2:
         link.write(line(texts['cmdSyntax'] % "connect <username> <password>"))
@@ -269,7 +267,6 @@ def do_look(link, text):
         tgt = resolve_or_oops(link, me, text)
         if tgt is None:
             return
-        print("Got a targeted tgt: %s" % repr(tgt))
     else:
         tgt = where_is_thing(me)
         if tgt is None:
