@@ -2,10 +2,11 @@
 
 import sys, getopt
 import sqlite3
-import socket
-import selectors
-
+import socket, selectors
 import net_helpers
+
+import logging
+logging.basicConfig(level=logging.INFO)
 
 db = None
 
@@ -95,8 +96,8 @@ def line(text):
 
 def on_connection(new_link):
     client_states[new_link] = -1
-    #new_link.write("Welcome.  Type `connect <name> <password>' to connect.\n")
-    print("Got link", new_link)
+    new_link.write("Welcome.  Type `connect <name> <password>' to connect.\n")
+    logging.info("Got link " + repr(new_link))
 
 def on_text(link, text):
     assert link in client_states
@@ -106,7 +107,7 @@ def on_text(link, text):
 def on_disconnection(old_link):
     assert old_link in client_states
     del client_states[old_link]
-    print("Losing link", old_link)
+    logging.info("Losing link " + repr(old_link))
 
 
 # The horrible, ugly world of networking code.
@@ -117,7 +118,7 @@ def main():
     server.setblocking(0)
     
     (host, port) = (opts.get("host", "localhost"), int(opts.get("port", "7072")))
-    print("Listening on %s:%d" % (host, port))
+    logging.info("Listening on %s:%d" % (host, port))
 
     server.bind((host, port))
     server.listen(100)
@@ -135,7 +136,7 @@ def main():
 
             if s == server:
                 (connection, address) = s.accept()
-                print("Got socket", connection, "with address", address)
+                logging.info("Got socket " + repr(connection) + "with address" + repr(address))
                 wrappedSockets[connection] = net_helpers.LineBufferingSocketContainer(connection)
                 on_connection(wrappedSockets[connection])
                 sel.register(connection, selectors.EVENT_READ)
@@ -149,9 +150,9 @@ def main():
                     on_text(link, line.replace("\r\n", ""))
 
                 if eof:
+                    sel.unregister(s)
                     on_disconnection(link)
-                    sel.unregister(link)
                     link.handle_disconnect()
-                    del wrappedSockets[wrappedSockets.indexOf(link)]
+                    del wrappedSockets[s]
 
 main()
