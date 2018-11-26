@@ -13,10 +13,14 @@ db = None
 # Default messages that would otherwise be hard-coded about in the code.
 texts = {
     'welcome': "Welcome.  Type `connect <name> <password>' to connect.",
+
     'badLogin': "I'm sorry, but those credentials were not right.",
     'cmd404': "I don't understand what you mean.",
     'thing404': "I can't find any such thing as `%s'.",
     'cmdSyntax': "That command needs to be written similar to `%s'.",
+
+    'youAreNowhere': "You... erm... don't seem to actually be in a location that exists.  This is, um, honestly, really embarrassing and we're not sure what to do about it.",
+    'beforeListingThingsInRoom': "You can see:",
 }
 
 
@@ -87,6 +91,14 @@ def describe_thing(id, get_in=True):
 
     return (thing[0][0], thing[0][1], contents)
 
+def where_is_thing(id):
+    """Return the id of the place where the Thing with id `id' is, or None if the place doesn't exist."""
+    results = from_db("SELECT id FROM things WHERE id IN (SELECT location_id FROM things WHERE id = ?)", (id,))
+    assert len(results) <= 1
+    if len(results) < 1:
+        return None
+    return results[0][0]
+
 
 # Options parsing, other initialization, and higher-level server logic.
 # TODO: --help
@@ -107,7 +119,7 @@ setup_db(db)
 # Commands that can be run.
 commands = {}
 # The abstract notion of indexing a network link to a state of being either not logged in at all or connected to some object in the database.
-# The client_states dictionary indexes links to a number that is either the database id of the _thing_ (e.g., character) the link is connected to, or -1 in the case that the link isn't connected to anything yet but has appeared before.
+# The client_states dictionary indexes links to a dictionary with at least one property: 'character', a number that is either the database id of the _thing_ (e.g., character) the link is connected to, or -1 in the case that the link isn't connected to anything yet but has appeared before.
 client_states = {}
 # Network code provides a few guarantees about the link objects it sends to on_connection() and on_text():
 # 1. The objects will always be unique among all links and will never change over the lifetime of the link, making them usable as an index.
@@ -140,7 +152,7 @@ def on_text(link, text):
 
     for cmd in commands:
         if cmd[0] == text[:len(cmd[0])]:
-            cmd[1](text[len(cmd[0])+1:], link)
+            cmd[1](link, text[len(cmd[0])+1:])
             return
 
     link.write(line(texts['cmd404']))
@@ -167,6 +179,46 @@ def try_login(link, args):
     else:
         link.write(line(texts['badLogin']))
         return False
+
+
+# This is a decorator builder. Note that decorators are @ immediately followed by an _expression_: If the expression is just a name, it evaluates to the function named that, but it can also be a function call, in which case python calls that function when evaluating the expression instead. The _result of evaluation_ should be a function, which is called on the function being decorated and returns a new function that effectively replaces it. This is all kind of confusing.
+def command(name):
+    # We can capture `name' in a closure.
+    def add_this_command(fn):
+        commands.append((name, fn))
+        return fn # We just want the side effects.
+    return add_this_command
+
+# Command definitions.
+# Watch out, order may be important -- if one command's full name is the beginning of another command's name, make sure the longer command gets declared first.
+@command("look")
+def do_look(link, text):
+    me = client_states[link]['character']
+    assert me != -1
+
+    whereami = where_is_thing(me)
+    if whereami is None:
+        link.write(line(texts['youAreNowhere']))
+
+    here = describe_thing(whereami)
+    if here is None:
+        link.write(line(texts['youAreNowhere']))
+
+    link.write(line('%s [%d]' % (here[0], whereami)))
+    link.write(here[1])
+    link.write(line(''))
+
+    if len(here[2]) > 0:
+        contents = texts['beforeListingThingsInRoom']
+        # There must be a shorter way to do this?
+        listed_one = False
+        for thing in here[2]:
+            if listed_one:
+                contents += '; %s' % thing[0]
+            else:
+                contents += ' %s' % thing[0]
+                listed_one = True
+        link.write(line(contents))
 
 
 # The horrible, ugly world of networking code.
