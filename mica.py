@@ -17,6 +17,7 @@ texts = {
     'badLogin': "I'm sorry, but those credentials were not right.",
     'cmd404': "I don't understand what you mean.",
     'thing404': "I can't find any such thing as `%s'.",
+    'thingOverflow': "`%s' is ambiguous -- I can't tell which you mean.",
     'cmdSyntax': "That command needs to be written similar to `%s'.",
 
     'youAreNowhere': "You... erm... don't seem to actually be in a location that exists.  This is, um, honestly, really embarrassing and we're not sure what to do about it.",
@@ -48,6 +49,12 @@ def setup_db(database):
 
 
 # Convenience functions for accessing the database.
+class TooManyResultsException(Exception):
+    pass
+
+class NotEnoughResultsException(Exception):
+    pass
+
 def calldb(query, opts=None):
     Cx = db.cursor()
     if opts is not None:
@@ -59,6 +66,19 @@ def calldb(query, opts=None):
 def from_db(query, opts=None):
     """Return the results from fetchall() of a database query; just for convenience."""
     return calldb(query, opts).fetchall()
+
+# TODO: Go through and find all the calls where it makes sense to use this instead of from_db() and fix them.
+def one_from_db(query, opts=None):
+    """Like from_db, but guarantees there is exactly one result returned--no more, no less.
+    Will raise TooManyResultsException and NotEnoughResultsException as appropriate.
+    Returns the singular result on its own and not wrapped in a containing array, so watch your semantics."""
+    results = from_db(query, opts)
+    if len(results) < 1:
+        raise NotEnoughResultsException()
+    elif len(results) > 1:
+        raise TooManyResultsException()
+    else:
+        return results[0]
 
 def find_account(account):
     """Return a tuple of (password, objectID) for the given account name, if it exists."""
@@ -98,6 +118,43 @@ def where_is_thing(id):
     if len(results) < 1:
         return None
     return results[0][0]
+
+def resolve_many_things_for(id, thing):
+    """Return either the id of the Thing that the text string `thing' would refer to from the perspective of another Thing with id `id', None if it can't find one, or -1 if there are too many possible matches.
+    This basically includes: (a) referring to Things that are in the same location as the perspective-Thing by name, in whole or in unique part; (b) referring to a single Thing globally by its id; (c) referring to 'me' in which case the id is just returned unchanged.
+    In the latter case, this function does make sure the Thing referred to exists when it is called.
+    We follow tradition in our syntax and use a `#' character followed by numbers to express the global id in our syntax."""
+    thing.strip()
+
+    if thing == 'me':
+        # TODO: Maybe we should check this too.  Just to be extra pedantic.
+        # I don't know if maybe we shouldn't just have a check_id_exists() function or something.
+        return [id]
+
+    if thing[0] == '#':
+        try:
+            dbref = int(thing[1:])
+        except ValueError():
+            return None
+        target = one_from_db("SELECT id FROM things WHERE id=?", (dbref,))
+        return [int(target[0])]
+
+    whereami = where_is_thing(id)
+    if whereami is not None:
+        candidates = from_db("SELECT name, id FROM things WHERE location_id = ?", (whereami,))
+        candidates += from_db("SELECT name, id FROM things WHERE location_id = ?", (id,))  # Consider items you're carrying.
+        matches = [x[1] for x in candidates if thing in x[0]]
+        return matches
+
+def resolve_one_thing_for(id, thing):
+    """Like resolve_many_things_for, but either returns a single id or raises TooManyResultsException or NotEnoughResultsException as appropriate."""
+    results = resolve_many_things_for(id, thing)
+    if len(results) > 1:
+        raise TooManyResultsException()
+    elif len(results) < 1:
+        raise NotEnoughResultsException()
+    else:
+        return results[0]
 
 
 # Options parsing, other initialization, and higher-level server logic.
@@ -189,6 +246,17 @@ def command(name):
         return fn # We just want the side effects.
     return add_this_command
 
+def resolve_or_oops(link, id, thing):
+    try:
+        result = resolve_one_thing_for(id, thing)
+    except NotEnoughResultsException:
+        link.write(line(texts['thing404'] % thing))
+        return None
+    except TooManyResultsException:
+        link.write(line(texts['thingOverflow']))
+        return None
+    return result
+
 # Command definitions.
 # Watch out, order may be important -- if one command's full name is the beginning of another command's name, make sure the longer command gets declared first.
 @command("look")
@@ -196,15 +264,24 @@ def do_look(link, text):
     me = client_states[link]['character']
     assert me != -1
 
-    whereami = where_is_thing(me)
-    if whereami is None:
-        link.write(line(texts['youAreNowhere']))
+    text.strip()
+    if text != '':
+        tgt = resolve_or_oops(link, me, text)
+        if tgt is None:
+            return
+        print("Got a targeted tgt: %s" % repr(tgt))
+    else:
+        tgt = where_is_thing(me)
+        if tgt is None:
+            link.write(line(texts['youAreNowhere']))
+            return
 
-    here = describe_thing(whereami)
+    here = describe_thing(tgt)
     if here is None:
-        link.write(line(texts['youAreNowhere']))
+        # The functions to find out the thing from the database didn't work.
+        link.write(line(texts['thing404'] % '(this is a big problem)'))
 
-    link.write(line('%s [%d]' % (here[0], whereami)))
+    link.write(line('%s [%d]' % (here[0], tgt)))
     link.write(here[1])
     link.write(line(''))
 
