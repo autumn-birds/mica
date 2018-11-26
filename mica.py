@@ -89,6 +89,10 @@ client_states = {}
 # 2. They will support a write() method which takes a chunk of UTF-8 encoded text in a single argument and writes it onto the link; this method will do any buffering, etc., that is required, only giving up if the link itself fails.
 # 3. They will support a kill() method that forcefully disconnects the client on the other end of the link.
 
+def line(text):
+    """Encapsulates the process of adding a proper newline to the end of lines, just in case it ever needs to be changed."""
+    return text + "\r\n"
+
 def on_connection(new_link):
     client_states[new_link] = -1
     #new_link.write("Welcome.  Type `connect <name> <password>' to connect.\n")
@@ -97,7 +101,7 @@ def on_connection(new_link):
 def on_text(link, text):
     assert link in client_states
     # TODO
-    link.write(text)
+    link.write(line(text))
 
 def on_disconnection(old_link):
     assert old_link in client_states
@@ -142,7 +146,7 @@ def main():
                 (lines, eof) = link.read()
 
                 for line in lines:
-                    on_text(link, line)
+                    on_text(link, line.replace("\r\n", ""))
 
                 if eof:
                     on_disconnection(link)
