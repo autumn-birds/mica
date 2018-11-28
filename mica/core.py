@@ -40,7 +40,19 @@ class Mica:
         if self.db is None:
             self.setup_db()
 
-    # Database functions.
+        # This list stores all the names of commands that could be run, associated with their functions.
+        # It is a list and not a dict because it might need to be ordered, although if that is the case the ordering should probably be enforced internally rather than depending on callers to register their commands in a problem-free order.
+        # The elements in the list are (command_name:str, command:function) tuples.
+        self._commands = []
+
+        # The client_states variable is indexed by 'link' objects, provided by network code, and it keeps track of state for each connection, such as what object it's logged into for a character or whether it's logged in at all.
+        # Since in the future there might be more state that's needed, e.g. to implement the required functionality for editor- or puppet-driving-type systems, or since some commands might want to store state, the values in this dictionary are also dictionaries; the character object the command is connected to is stored under the 'character' key in each dictionary. 
+        # TODO: Currently the 'character' key is set to -1 to indicate a connection that has not logged in yet. But really it should be None, since I think it might be theoretically possible for negative database indices to exist somehow.
+        self.client_states = {}
+
+
+    #
+    # Database functions (accessing and updating objects, etc.)
     def setup_db():
         """Initialize the database with a minimal default template.
         The result of calling this function when the database already has data in it is undefined."""
@@ -79,7 +91,6 @@ class Mica:
         """Return the results from fetchall() of a database query; just for convenience."""
         return self._calldb(query, opts).fetchall()
 
-    # TODO: Go through and find all the calls where it makes sense to use this instead of from_db() and fix them.
     def _one_from_db(query, opts=None):
         """Like from_db, but guarantees there is exactly one result returned--no more, no less.
         Will raise TooManyResultsException and NotEnoughResultsException as appropriate.
@@ -139,10 +150,7 @@ class Mica:
         return results[0]
 
     def resolve_many_things_for(id, thing):
-        """Return either the id of the Thing that the text string `thing' would refer to from the perspective of another Thing with id `id', None if it can't find one, or -1 if there are too many possible matches.
-        This basically includes: (a) referring to Things that are in the same location as the perspective-Thing by name, in whole or in unique part; (b) referring to a single Thing globally by its id; (c) referring to 'me' in which case the id is just returned unchanged.
-        In the latter case, this function does make sure the Thing referred to exists when it is called.
-        We follow tradition and use a `#' character followed by numbers to express the global id in our syntax."""
+        """Returns a list of all the Thing ids that the text string `thing' could possibly match, using the syntax used by commands & players to refer to objects, from the point-of-view of the Thing with id `id'; that is, it will include objects contained by that Thing as well as objects in the same location as it."""
         thing.strip()
 
         if thing == 'me':
@@ -155,7 +163,7 @@ class Mica:
                 dbref = int(thing[1:])
             except ValueError():
                 return None
-            
+
             try:
                 target = self._one_from_db("SELECT id FROM things WHERE id=?", (dbref,))
                 return [int(target[0])]
@@ -184,51 +192,33 @@ class Mica:
         return "%s [%d]" % (id, name)
 
 
-    # Options parsing, other initialization, and higher-level server logic.
-    # TODO: --help
-    (opts, args) = getopt.getopt(sys.argv[1:], '', ['host=', 'port=', 'initDB'])
-
-    _opts = {}
-    for pair in opts:
-        # Making sure to strip out the '--'.
-        _opts[pair[0][2:]] = pair[1]
-    opts = _opts
-    del _opts
-
-    # TODO: Implement manual switch for creating database to file, + loading arbitrary file on start
-    db = sqlite3.connect(":memory:")
-    setup_db(db)
-
-
-    # Commands that can be run.
-    commands = {}
-    # The abstract notion of indexing a network link to a state of being either not logged in at all or connected to some object in the database.
-    # The client_states dictionary indexes links to a dictionary with at least one property: 'character', a number that is either the database id of the _thing_ (e.g., character) the link is connected to, or -1 in the case that the link isn't connected to anything yet but has appeared before.
-    client_states = {}
-    # Network code provides a few guarantees about the link objects it sends to on_connection() and on_text():
-    # 1. The objects will always be unique among all links and will never change over the lifetime of the link, making them usable as an index.
-    # 2. They will support a write() method which takes a chunk of UTF-8 encoded text in a single argument and writes it onto the link; this method will do any buffering, etc., that is required, only giving up if the link itself fails.
+    #
+    # Logic for connections and how users interact with the system, including login and command processing.
+    # There is no actual network code here; instead, the networking code in the main loop calls these functions with lines of text or on relevant events, passing in objects we understand as 'links'.
+    # The implementation details are unspecified, but the link objects must conform to a small API:
+    # 1. The objects will always be unique among all links and will never change over the lifetime of the link, making them usable as an index (e.g. for state associated with the connection.)
+    # 2. They will support a write() method which takes a chunk of UTF-8 encoded text in a single argument and writes it onto the link; this method will not need to be called multiple times to safely assume the whole text has been sent, will buffer if necessary, and should not block.
     # 3. They will support a kill() method that forcefully disconnects the client on the other end of the link.
-
-    commands = []
-
     def line(text):
         """Encapsulates the process of adding a proper newline to the end of lines, just in case it ever needs to be changed."""
         return text + "\r\n"
 
     def on_connection(new_link):
+        """Called by network code when a new connection is received from a client."""
         client_states[new_link] = {'character': -1}
         new_link.write(line(texts['welcome']))
         logging.info("Got link " + repr(new_link))
 
     def on_text(link, text):
+        """Called by network code when some text is received from a previously connected client.
+        The result of network code calling this function with a link object that has not been previously passed to on_connection is undefined."""
         assert link in client_states
         s = client_states[link]['character']
 
         if s == -1:
             cmd = "connect"
             if text[:len(cmd)] == cmd:
-                try_login(link, text[len(cmd)+1:])
+                self._try_login(link, text[len(cmd)+1:])
             else:
                 link.write(line(texts['cmd404']))
             return
@@ -241,11 +231,14 @@ class Mica:
         link.write(line(texts['cmd404']))
 
     def on_disconnection(old_link):
+        """Called by network code when a connection dies.
+        The result of re-using an old link object again once it has been passed to this function is undefined."""
         assert old_link in client_states
         del client_states[old_link]
         logging.info("Losing link " + repr(old_link))
 
-    def try_login(link, args):
+    def _try_login(link, args):
+        """Called internally to process logins."""
         # TODO: allow double-quote parsing? Maybe?
         args = args.split(' ')
         if len(args) != 2:
@@ -263,8 +256,11 @@ class Mica:
             return False
 
 
-    # This is a decorator builder. Note that decorators are @ immediately followed by an _expression_: If the expression is just a name, it evaluates to the function named that, but it can also be a function call, in which case python calls that function when evaluating the expression instead. The _result of evaluation_ should be a function, which is called on the function being decorated and returns a new function that effectively replaces it. This is all kind of confusing.
+    #
+    # Interface for adding commands to the system.
+    # (Note that decorators are @ immediately followed by an _expression_: If the expression is just a name, it evaluates to the function named that, but it can also be a function call, in which case python calls that function when evaluating the expression instead. The _result of evaluation_ should be a function, which is called on the function being decorated and returns a new function that effectively replaces it. So this returns a function that is called on the actual function being decorated.)
     def command(name):
+        """Decorator function. Use like @mica_instance.command("look") on the function implementing the command."""
         # We can capture `name' in a closure.
         def add_this_command(fn):
             commands.append((name, fn))
@@ -325,6 +321,29 @@ def do_look(link, text): #Should we be passing in the state object, instead of l
     if len(contents) > 0:
         link.write(line(texts['beforeListingContents'] + contents))
 
+
+
+
+
+
+
+
+
+
+# Options parsing, other initialization, and higher-level server logic.
+# TODO: --help
+(opts, args) = getopt.getopt(sys.argv[1:], '', ['host=', 'port=', 'initDB'])
+
+_opts = {}
+for pair in opts:
+    # Making sure to strip out the '--'.
+    _opts[pair[0][2:]] = pair[1]
+opts = _opts
+del _opts
+
+# TODO: Implement manual switch for creating database to file, + loading arbitrary file on start
+db = sqlite3.connect(":memory:")
+setup_db(db)
 
 # The horrible, ugly world of networking code.
 # TODO: SSL support?
