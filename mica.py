@@ -3,10 +3,12 @@
 import sys, getopt
 import sqlite3
 import socket, selectors
+
 import net_helpers
 
 import logging
 logging.basicConfig(level=logging.INFO)
+
 
 db = None
 
@@ -17,11 +19,11 @@ texts = {
     'badLogin': "I'm sorry, but those credentials were not right.",
     'cmd404': "I don't understand what you mean.",
     'thing404': "I can't find any such thing as `%s'.",
-    'thingOverflow': "`%s' is ambiguous -- I can't tell which you mean.",
+    'thingOverflow': "`%s' is ambiguous -- I can't tell which thing you mean.",
     'cmdSyntax': "That command needs to be written similar to `%s'.",
 
     'youAreNowhere': "You... erm... don't seem to actually be in a location that exists.  This is, um, honestly, really embarrassing and we're not sure what to do about it.",
-    'beforeListingThingsInRoom': "You can see:",
+    'beforeListingContents': "You can see: ",
 }
 
 
@@ -78,52 +80,59 @@ def one_from_db(query, opts=None):
     elif len(results) > 1:
         raise TooManyResultsException()
     else:
+        print("one_from_db: returning %s" % repr(results[0]))
         return results[0]
 
 def find_account(account):
-    """Return a tuple of (password, objectID) for the given account name, if it exists."""
-    candidates = from_db("SELECT id FROM things WHERE name=? AND id IN (SELECT character_id FROM accounts)", (account,))
-    if len(candidates) != 1:
+    """Return a tuple of (password, objectID) for the given account name, if it exists and is not ambiguous."""
+    assert type(account) is str
+    try:
+        thingid = one_from_db("SELECT id FROM things WHERE name=? AND id IN (SELECT character_id FROM accounts)", (account,))
+    except (NotEnoughResultsException, TooManyResultsException):
         return None
 
-    acct = from_db("SELECT password, character_id FROM accounts WHERE id=?", (candidates[0][0],))
-    if len(acct) == 0:
-        return None
-    assert(len(acct) == 1)
-    return acct[0]
-
-def describe_thing(id, get_in=True):
-    """Call up the database and return the name and desc of a Thing along with its contents (any Things with a location_id of the requested Thing.)
-    The form is a tuple: name, descs, contents (or if get_in=False, name, desc.)
-    This function returns None if there is no thing with id `id'."""
-    thing = from_db("SELECT name, desc FROM things WHERE id=?", (id,))
-    assert len(thing) <= 1
-    if len(thing) == 0:
+    try:
+        acct = one_from_db("SELECT password, character_id FROM accounts WHERE id=?", (thingid[0],))
+    except NotEnoughResultsException:
         return None
 
-    if not get_in:
-        return (thing[0][0], thing[0][1])
+    return acct
 
+def get_thing(id):
+    """Call up the database and return the name and desc of a Thing (in a tuple), or None if there is none with that id."""
+    assert type(id) is int
+    try:
+        thing = one_from_db("SELECT name, desc FROM things WHERE id=?", (id,))
+    except NotEnoughResultsException:
+        return None
+
+    return thing
+
+def get_contents(id):
+    """Return a list of ids of Things whose location is set to the `id' given; or more prosaically, a list of things that are in the Thing with id `id'.
+    This function doesn't check that the id given actually exists, but the ids returned should exist."""
+    assert type(id) is int
     contents = []
     for content in from_db("SELECT id FROM things WHERE location_id=?", (id,)):
         if content[0] != id:
-            contents.append(describe_thing(content[0], False))
+            assert type(content[0] is int)
+            contents.append(content[0])
+    return contents
 
-    return (thing[0][0], thing[0][1], contents)
-
-def where_is_thing(id):
+def get_location(id):
     """Return the id of the place where the Thing with id `id' is, or None if the place doesn't exist."""
-    results = from_db("SELECT id FROM things WHERE id IN (SELECT location_id FROM things WHERE id = ?)", (id,))
-    assert len(results) <= 1
-    if len(results) < 1:
+    try:
+        results = one_from_db("SELECT id FROM things WHERE id IN (SELECT location_id FROM things WHERE id = ?)", (id,))
+    except NotEnoughResultsException:
         return None
-    return results[0][0]
+    print("get_location: %d is in %d" % (id, results[0]))
+    return results[0]
 
 def resolve_many_things_for(id, thing):
     """Return either the id of the Thing that the text string `thing' would refer to from the perspective of another Thing with id `id', None if it can't find one, or -1 if there are too many possible matches.
     This basically includes: (a) referring to Things that are in the same location as the perspective-Thing by name, in whole or in unique part; (b) referring to a single Thing globally by its id; (c) referring to 'me' in which case the id is just returned unchanged.
     In the latter case, this function does make sure the Thing referred to exists when it is called.
-    We follow tradition in our syntax and use a `#' character followed by numbers to express the global id in our syntax."""
+    We follow tradition and use a `#' character followed by numbers to express the global id in our syntax."""
     thing.strip()
 
     if thing == 'me':
@@ -136,14 +145,18 @@ def resolve_many_things_for(id, thing):
             dbref = int(thing[1:])
         except ValueError():
             return None
-        target = one_from_db("SELECT id FROM things WHERE id=?", (dbref,))
-        return [int(target[0])]
+        
+        try:
+            target = one_from_db("SELECT id FROM things WHERE id=?", (dbref,))
+            return [int(target[0])]
+        except NotEnoughResultsException:
+            return None
 
-    whereami = where_is_thing(id)
+    whereami = get_location(id)
     if whereami is not None:
-        candidates = from_db("SELECT name, id FROM things WHERE location_id = ?", (whereami,))
-        candidates += from_db("SELECT name, id FROM things WHERE location_id = ?", (id,))  # Consider items you're carrying.
-        matches = [x[1] for x in candidates if thing in x[0]]
+        # Consider items you're carrying.
+        candidates = [(x, get_thing(x)[0]) for x in get_contents(whereami) + get_contents(id)]
+        matches = [x[0] for x in candidates if thing in x[1]]
         return matches
 
 def resolve_one_thing_for(id, thing):
@@ -155,6 +168,10 @@ def resolve_one_thing_for(id, thing):
         raise NotEnoughResultsException()
     else:
         return results[0]
+
+def thing_displayname(id, name):
+    """Not a database function; returns a formatted string showing a Thing's name with its database number appended."""
+    return "%s [%d]" % (id, name)
 
 
 # Options parsing, other initialization, and higher-level server logic.
@@ -228,7 +245,7 @@ def try_login(link, args):
 
     # Again, TODO: Password hashing
     if acct[0] == args[1]:
-        assert describe_thing(acct[1]) is not None    # TODO: Is this really necessary? It might be a significant performance drop (more database calls, even more if the object has a lot of objects in it), which could matter since malicious users can try to sign in very frequently, and they don't need to authenticate themselves first (duh.)
+        assert get_thing(acct[1]) is not None    # TODO: Is this really necessary? It might be a significant performance drop (more database calls, even more if the object has a lot of objects in it), which could matter since malicious users can try to sign in very frequently, and they don't need to authenticate themselves first (duh.)
         client_states[link]['character'] = acct[1]
         return True
     else:
@@ -258,7 +275,7 @@ def resolve_or_oops(link, id, thing):
 # Command definitions.
 # Watch out, order may be important -- if one command's full name is the beginning of another command's name, make sure the longer command gets declared first.
 @command("look")
-def do_look(link, text):
+def do_look(link, text): #Should we be passing in the state object, instead of looking it up in client_states every time?
     me = client_states[link]['character']
     assert me != -1
 
@@ -268,31 +285,24 @@ def do_look(link, text):
         if tgt is None:
             return
     else:
-        tgt = where_is_thing(me)
+        tgt = get_location(me)
         if tgt is None:
             link.write(line(texts['youAreNowhere']))
             return
 
-    here = describe_thing(tgt)
+    here = get_thing(tgt)
+    print("here = %s", repr(here))
     if here is None:
         # The functions to find out the thing from the database didn't work.
         link.write(line(texts['thing404'] % '(this is a big problem)'))
 
-    link.write(line('%s [%d]' % (here[0], tgt)))
-    link.write(here[1])
-    link.write(line(''))
+    link.write(line(thing_displayname(here[0], tgt)))
+    link.write(here[1] + line(''))
 
-    if len(here[2]) > 0:
-        contents = texts['beforeListingThingsInRoom']
-        # There must be a shorter way to do this?
-        listed_one = False
-        for thing in here[2]:
-            if listed_one:
-                contents += '; %s' % thing[0]
-            else:
-                contents += ' %s' % thing[0]
-                listed_one = True
-        link.write(line(contents))
+    print("to get_contents: %s" % repr(here[0]))
+    contents = ", ".join([thing_displayname(get_thing(x)[0], x) for x in get_contents(tgt)])
+    if len(contents) > 0:
+        link.write(line(texts['beforeListingContents'] + contents))
 
 
 # The horrible, ugly world of networking code.
