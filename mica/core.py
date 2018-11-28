@@ -18,6 +18,8 @@ texts = {
     'thing404': "I can't find any such thing as `%s'.",
     'thingOverflow': "`%s' is ambiguous -- I can't tell which thing you mean.",
     'cmdSyntax': "That command needs to be written similar to `%s'.",
+    'cmdErrWithArgs': "[!!] There was a problem processing your command, but the arguments weren't as expected: %s",
+    'cmdErrUnspecified': "[!!] There was a problem processing your command, but no explanation has been provided. Please bother your local developers.",
 
     'youAreNowhere': "You... erm... don't seem to actually be in a location that exists.  This is, um, honestly, really embarrassing and we're not sure what to do about it.",
     'beforeListingContents': "You can see: ",
@@ -28,6 +30,9 @@ class TooManyResultsException(Exception):
     pass
 
 class NotEnoughResultsException(Exception):
+    pass
+
+class CommandProcessingError(Exception):
     pass
 
 
@@ -206,7 +211,7 @@ class Mica:
     def on_connection(new_link):
         """Called by network code when a new connection is received from a client."""
         client_states[new_link] = {'character': -1}
-        new_link.write(line(texts['welcome']))
+        new_link.write(self.line(texts['welcome']))
         logging.info("Got link " + repr(new_link))
 
     def on_text(link, text):
@@ -220,15 +225,23 @@ class Mica:
             if text[:len(cmd)] == cmd:
                 self._try_login(link, text[len(cmd)+1:])
             else:
-                link.write(line(texts['cmd404']))
+                link.write(self.line(texts['cmd404']))
             return
 
         for cmd in commands:
             if cmd[0] == text[:len(cmd[0])]:
-                cmd[1](link, text[len(cmd[0])+1:])
+                try:
+                    cmd[1](link, text[len(cmd[0])+1:])
+                except CommandProcessingError as e:
+                    if len(e.args) == 1:
+                        link.write(self.line(e.args[0]))
+                    elif len(e.args) > 1:
+                        link.write(self.line(texts['cmdErrWithArgs'] % repr(e.args)))
+                    else:
+                        link.write(self.line(texts['cmdErrUnspecified']))
                 return
 
-        link.write(line(texts['cmd404']))
+        link.write(self.line(texts['cmd404']))
 
     def on_disconnection(old_link):
         """Called by network code when a connection dies.
@@ -242,7 +255,7 @@ class Mica:
         # TODO: allow double-quote parsing? Maybe?
         args = args.split(' ')
         if len(args) != 2:
-            link.write(line(texts['cmdSyntax'] % "connect <username> <password>"))
+            link.write(self.line(texts['cmdSyntax'] % "connect <username> <password>"))
             return
         acct = self.find_account(args[0])
 
@@ -252,7 +265,7 @@ class Mica:
             client_states[link]['character'] = acct[1]
             return True
         else:
-            link.write(line(texts['badLogin']))
+            link.write(self.line(texts['badLogin']))
             return False
 
 
@@ -276,7 +289,6 @@ class Mica:
         try:
             result = self.resolve_one_thing_for(pov, thing)
         except NotEnoughResultsException:
-            link.write(line())
             raise CommandProcessingError(texts['thing404'] % thing)
         except TooManyResultsException:
             raise CommandProcessingError(texts['thingOverflow'])
