@@ -193,12 +193,12 @@ class Mica:
 
 
     #
-    # Logic for connections and how users interact with the system, including login and command processing.
+    # Logic for connections and how users interact with the system, including logging in and command processing.
     # There is no actual network code here; instead, the networking code in the main loop calls these functions with lines of text or on relevant events, passing in objects we understand as 'links'.
     # The implementation details are unspecified, but the link objects must conform to a small API:
     # 1. The objects will always be unique among all links and will never change over the lifetime of the link, making them usable as an index (e.g. for state associated with the connection.)
     # 2. They will support a write() method which takes a chunk of UTF-8 encoded text in a single argument and writes it onto the link; this method will not need to be called multiple times to safely assume the whole text has been sent, will buffer if necessary, and should not block.
-    # 3. They will support a kill() method that forcefully disconnects the client on the other end of the link.
+    # 3. They will support a kill() method that forcefully disconnects the client on the other end of the link. The network code should [I hope] be able to take care of calling on_disconnection() itself in that case.
     def line(text):
         """Encapsulates the process of adding a proper newline to the end of lines, just in case it ever needs to be changed."""
         return text + "\r\n"
@@ -267,15 +267,20 @@ class Mica:
             return fn # We just want the side effects.
         return add_this_command
 
-    def resolve_or_oops(link, id, thing):
+    def pov_get_thing_by_name(link, thing):
+        """Resolve what Thing a user connected to `link' would be referring to.
+        If no object can be found or the result is ambiguous, this function throws a CommandProcessingError; command implementations should only catch this error in order to do any necessary cleanup or revert their actions, and it is strongly encouraged that all resolution be done before doing anything that would need to be reverted in case the objects being resolved did not exist, if possible."""
+        assert link in self.client_states
+        pov = self.client_states[link]['character']
+
         try:
-            result = self.resolve_one_thing_for(id, thing)
+            result = self.resolve_one_thing_for(pov, thing)
         except NotEnoughResultsException:
-            link.write(line(texts['thing404'] % thing))
-            return None
+            link.write(line())
+            raise CommandProcessingError(texts['thing404'] % thing)
         except TooManyResultsException:
-            link.write(line(texts['thingOverflow']))
-            return None
+            raise CommandProcessingError(texts['thingOverflow'])
+
         return result
 
 
