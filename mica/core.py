@@ -43,7 +43,7 @@ class Mica:
     # Database functions.
     def setup_db():
         """Initialize the database with a minimal default template.
-        The result of calling this function when the database has no data in it is undefined."""
+        The result of calling this function when the database already has data in it is undefined."""
         dbSetup = [
           "CREATE TABLE things (id INTEGER PRIMARY KEY, owner_id INTEGER, location_id INTEGER, name TEXT, desc TEXT)",
           "CREATE TABLE accounts (id INTEGER PRIMARY KEY, character_id INTEGER, password TEXT)",
@@ -65,9 +65,9 @@ class Mica:
             print("ERROR SETTING UP INITIAL DATABASE:\n\n")
             raise
 
-    def calldb(query, opts=None):
+    def _calldb(query, opts=None):
         """Execute a database query `query` with the optional tuple of data `opts` and return the cursor that was used to execute the query, on which, for example, fetchall() or similar methods can be called.
-        This function should be considered private."""
+        External functionality should not use this, as the database structure is not meant to be an API."""
         Cx = self.db.cursor()
         if opts is not None:
             Cx.execute(query, opts)
@@ -75,16 +75,16 @@ class Mica:
             Cx.execute(query)
         return Cx
 
-    def from_db(query, opts=None):
+    def _from_db(query, opts=None):
         """Return the results from fetchall() of a database query; just for convenience."""
-        return calldb(query, opts).fetchall()
+        return self._calldb(query, opts).fetchall()
 
     # TODO: Go through and find all the calls where it makes sense to use this instead of from_db() and fix them.
-    def one_from_db(query, opts=None):
+    def _one_from_db(query, opts=None):
         """Like from_db, but guarantees there is exactly one result returned--no more, no less.
         Will raise TooManyResultsException and NotEnoughResultsException as appropriate.
         Returns the singular result on its own and not wrapped in a containing array, so watch your semantics."""
-        results = from_db(query, opts)
+        results = self._from_db(query, opts)
         if len(results) < 1:
             raise NotEnoughResultsException()
         elif len(results) > 1:
@@ -97,12 +97,12 @@ class Mica:
         """Return a tuple of (password, objectID) for the given account name, if it exists and is not ambiguous."""
         assert type(account) is str
         try:
-            thingid = one_from_db("SELECT id FROM things WHERE name=? AND id IN (SELECT character_id FROM accounts)", (account,))
+            thingid = self._one_from_db("SELECT id FROM things WHERE name=? AND id IN (SELECT character_id FROM accounts)", (account,))
         except (NotEnoughResultsException, TooManyResultsException):
             return None
 
         try:
-            acct = one_from_db("SELECT password, character_id FROM accounts WHERE id=?", (thingid[0],))
+            acct = self._one_from_db("SELECT password, character_id FROM accounts WHERE id=?", (thingid[0],))
         except NotEnoughResultsException:
             return None
 
@@ -112,7 +112,7 @@ class Mica:
         """Call up the database and return the name and desc of a Thing (in a tuple), or None if there is none with that id."""
         assert type(id) is int
         try:
-            thing = one_from_db("SELECT name, desc FROM things WHERE id=?", (id,))
+            thing = self._one_from_db("SELECT name, desc FROM things WHERE id=?", (id,))
         except NotEnoughResultsException:
             return None
 
@@ -123,7 +123,7 @@ class Mica:
         This function doesn't check that the id given actually exists, but the ids returned should exist."""
         assert type(id) is int
         contents = []
-        for content in from_db("SELECT id FROM things WHERE location_id=?", (id,)):
+        for content in self._from_db("SELECT id FROM things WHERE location_id=?", (id,)):
             if content[0] != id:
                 assert type(content[0] is int)
                 contents.append(content[0])
@@ -132,7 +132,7 @@ class Mica:
     def get_location(id):
         """Return the id of the place where the Thing with id `id' is, or None if the place doesn't exist."""
         try:
-            results = one_from_db("SELECT id FROM things WHERE id IN (SELECT location_id FROM things WHERE id = ?)", (id,))
+            results = self._one_from_db("SELECT id FROM things WHERE id IN (SELECT location_id FROM things WHERE id = ?)", (id,))
         except NotEnoughResultsException:
             return None
         print("get_location: %d is in %d" % (id, results[0]))
@@ -157,21 +157,21 @@ class Mica:
                 return None
             
             try:
-                target = one_from_db("SELECT id FROM things WHERE id=?", (dbref,))
+                target = self._one_from_db("SELECT id FROM things WHERE id=?", (dbref,))
                 return [int(target[0])]
             except NotEnoughResultsException:
                 return None
 
-        whereami = get_location(id)
+        whereami = self.get_location(id)
         if whereami is not None:
             # Consider items you're carrying.
-            candidates = [(x, get_thing(x)[0]) for x in get_contents(whereami) + get_contents(id)]
+            candidates = [(x, self.get_thing(x)[0]) for x in self.get_contents(whereami) + self.get_contents(id)]
             matches = [x[0] for x in candidates if thing in x[1]]
             return matches
 
     def resolve_one_thing_for(id, thing):
         """Like resolve_many_things_for, but either returns a single id or raises TooManyResultsException or NotEnoughResultsException as appropriate."""
-        results = resolve_many_things_for(id, thing)
+        results = self.resolve_many_things_for(id, thing)
         if len(results) > 1:
             raise TooManyResultsException()
         elif len(results) < 1:
@@ -180,7 +180,7 @@ class Mica:
             return results[0]
 
     def thing_displayname(id, name):
-        """Not a database function; returns a formatted string showing a Thing's name with its database number appended."""
+        """Returns a string showing a Thing's name with its database number appended, as appropriate for output to users; this is purely a formatting function and no checking is done."""
         return "%s [%d]" % (id, name)
 
 
@@ -251,11 +251,11 @@ class Mica:
         if len(args) != 2:
             link.write(line(texts['cmdSyntax'] % "connect <username> <password>"))
             return
-        acct = find_account(args[0])
+        acct = self.find_account(args[0])
 
         # Again, TODO: Password hashing
         if acct[0] == args[1]:
-            assert get_thing(acct[1]) is not None    # TODO: Is this really necessary? It might be a significant performance drop (more database calls, even more if the object has a lot of objects in it), which could matter since malicious users can try to sign in very frequently, and they don't need to authenticate themselves first (duh.)
+            assert self.get_thing(acct[1]) is not None    # TODO: Is this really necessary? It might be a significant performance drop (more database calls, even more if the object has a lot of objects in it), which could matter since malicious users can try to sign in very frequently, and they don't need to authenticate themselves first (duh.)
             client_states[link]['character'] = acct[1]
             return True
         else:
@@ -273,7 +273,7 @@ class Mica:
 
     def resolve_or_oops(link, id, thing):
         try:
-            result = resolve_one_thing_for(id, thing)
+            result = self.resolve_one_thing_for(id, thing)
         except NotEnoughResultsException:
             link.write(line(texts['thing404'] % thing))
             return None
@@ -281,6 +281,17 @@ class Mica:
             link.write(line(texts['thingOverflow']))
             return None
         return result
+
+
+
+
+
+
+
+
+
+
+
 
 # Command definitions.
 # Watch out, order may be important -- if one command's full name is the beginning of another command's name, make sure the longer command gets declared first.
@@ -295,22 +306,22 @@ def do_look(link, text): #Should we be passing in the state object, instead of l
         if tgt is None:
             return
     else:
-        tgt = get_location(me)
+        tgt = self.get_location(me)
         if tgt is None:
             link.write(line(texts['youAreNowhere']))
             return
 
-    here = get_thing(tgt)
+    here = self.get_thing(tgt)
     print("here = %s", repr(here))
     if here is None:
         # The functions to find out the thing from the database didn't work.
         link.write(line(texts['thing404'] % '(this is a big problem)'))
 
-    link.write(line(thing_displayname(here[0], tgt)))
+    link.write(line(self.thing_displayname(here[0], tgt)))
     link.write(here[1] + line(''))
 
     print("to get_contents: %s" % repr(here[0]))
-    contents = ", ".join([thing_displayname(get_thing(x)[0], x) for x in get_contents(tgt)])
+    contents = ", ".join([self.thing_displayname(self.get_thing(x)[0], x) for x in self.get_contents(tgt)])
     if len(contents) > 0:
         link.write(line(texts['beforeListingContents'] + contents))
 
