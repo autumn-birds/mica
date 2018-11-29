@@ -1,13 +1,8 @@
 #!/usr/bin/python3
 
-import sys, getopt
-import sqlite3
-import socket, selectors
-
-import net_helpers
-
 import logging
 logging.basicConfig(level=logging.INFO)
+
 
 # Default messages that would otherwise be hard-coded about in the code.
 texts = {
@@ -32,6 +27,7 @@ class TooManyResultsException(Exception):
 class NotEnoughResultsException(Exception):
     pass
 
+# This is an exception thrown by command functions to report an error and exit at the same time.
 class CommandProcessingError(Exception):
     pass
 
@@ -294,117 +290,3 @@ class Mica:
             raise CommandProcessingError(texts['thingOverflow'])
 
         return result
-
-
-
-
-
-
-
-
-
-
-
-
-# Command definitions.
-# Watch out, order may be important -- if one command's full name is the beginning of another command's name, make sure the longer command gets declared first.
-@command("look")
-def do_look(link, text): #Should we be passing in the state object, instead of looking it up in client_states every time?
-    me = client_states[link]['character']
-    assert me != -1
-
-    text.strip()
-    if text != '':
-        tgt = resolve_or_oops(link, me, text)
-        if tgt is None:
-            return
-    else:
-        tgt = self.get_location(me)
-        if tgt is None:
-            link.write(line(texts['youAreNowhere']))
-            return
-
-    here = self.get_thing(tgt)
-    print("here = %s", repr(here))
-    if here is None:
-        # The functions to find out the thing from the database didn't work.
-        link.write(line(texts['thing404'] % '(this is a big problem)'))
-
-    link.write(line(self.thing_displayname(here[0], tgt)))
-    link.write(here[1] + line(''))
-
-    print("to get_contents: %s" % repr(here[0]))
-    contents = ", ".join([self.thing_displayname(self.get_thing(x)[0], x) for x in self.get_contents(tgt)])
-    if len(contents) > 0:
-        link.write(line(texts['beforeListingContents'] + contents))
-
-
-
-
-
-
-
-
-
-
-# Options parsing, other initialization, and higher-level server logic.
-# TODO: --help
-(opts, args) = getopt.getopt(sys.argv[1:], '', ['host=', 'port=', 'initDB'])
-
-_opts = {}
-for pair in opts:
-    # Making sure to strip out the '--'.
-    _opts[pair[0][2:]] = pair[1]
-opts = _opts
-del _opts
-
-# TODO: Implement manual switch for creating database to file, + loading arbitrary file on start
-db = sqlite3.connect(":memory:")
-setup_db(db)
-
-# The horrible, ugly world of networking code.
-# TODO: SSL support?
-def main():
-    server = socket.socket()
-    server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    server.setblocking(0)
-    
-    (host, port) = (opts.get("host", "localhost"), int(opts.get("port", "7072")))
-    logging.info("Listening on %s:%d" % (host, port))
-
-    server.bind((host, port))
-    server.listen(100)
-
-    sel = selectors.DefaultSelector()
-    sel.register(server, selectors.EVENT_READ)
-
-    # A dict of socket objects, pointing to the LineBufferingSocketContainer (see liner_helpers.py) that deals with that particular socket.
-    wrappedSockets = {}
-
-    while True:
-        events = sel.select()
-        for key, mask in events:
-            s = key.fileobj
-
-            if s == server:
-                (connection, address) = s.accept()
-                logging.info("Got socket " + repr(connection) + "with address" + repr(address))
-                wrappedSockets[connection] = net_helpers.LineBufferingSocketContainer(connection)
-                on_connection(wrappedSockets[connection])
-                sel.register(connection, selectors.EVENT_READ)
-            else:
-                assert s in wrappedSockets
-                link = wrappedSockets[s]
-                assert link.socket == s
-                (lines, eof) = link.read()
-
-                for line in lines:
-                    on_text(link, line.replace("\r\n", ""))
-
-                if eof:
-                    sel.unregister(s)
-                    on_disconnection(link)
-                    link.handle_disconnect()
-                    del wrappedSockets[s]
-
-main()
