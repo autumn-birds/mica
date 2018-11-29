@@ -54,7 +54,7 @@ class Mica:
 
     #
     # Database functions (accessing and updating objects, etc.)
-    def setup_db():
+    def setup_db(self):
         """Initialize the database with a minimal default template.
         The result of calling this function when the database already has data in it is undefined."""
         dbSetup = [
@@ -78,7 +78,7 @@ class Mica:
             print("ERROR SETTING UP INITIAL DATABASE:\n\n")
             raise
 
-    def _calldb(query, opts=None):
+    def _calldb(self, query, opts=None):
         """Execute a database query `query` with the optional tuple of data `opts` and return the cursor that was used to execute the query, on which, for example, fetchall() or similar methods can be called.
         External functionality should not use this, as the database structure is not meant to be an API."""
         Cx = self.db.cursor()
@@ -88,11 +88,11 @@ class Mica:
             Cx.execute(query)
         return Cx
 
-    def _from_db(query, opts=None):
+    def _from_db(self, query, opts=None):
         """Return the results from fetchall() of a database query; just for convenience."""
         return self._calldb(query, opts).fetchall()
 
-    def _one_from_db(query, opts=None):
+    def _one_from_db(self, query, opts=None):
         """Like from_db, but guarantees there is exactly one result returned--no more, no less.
         Will raise TooManyResultsException and NotEnoughResultsException as appropriate.
         Returns the singular result on its own and not wrapped in a containing array, so watch your semantics."""
@@ -105,7 +105,7 @@ class Mica:
             print("one_from_db: returning %s" % repr(results[0]))
             return results[0]
 
-    def find_account(account):
+    def find_account(self, account):
         """Return a tuple of (password, objectID) for the given account name, if it exists and is not ambiguous."""
         assert type(account) is str
         try:
@@ -120,7 +120,7 @@ class Mica:
 
         return acct
 
-    def get_thing(id):
+    def get_thing(self, id):
         """Call up the database and return the name and desc of a Thing (in a tuple), or None if there is none with that id."""
         assert type(id) is int
         try:
@@ -130,7 +130,7 @@ class Mica:
 
         return thing
 
-    def get_contents(id):
+    def get_contents(self, id):
         """Return a list of ids of Things whose location is set to the `id' given; or more prosaically, a list of things that are in the Thing with id `id'.
         This function doesn't check that the id given actually exists, but the ids returned should exist."""
         assert type(id) is int
@@ -141,7 +141,7 @@ class Mica:
                 contents.append(content[0])
         return contents
 
-    def get_location(id):
+    def get_location(self, id):
         """Return the id of the place where the Thing with id `id' is, or None if the place doesn't exist."""
         try:
             results = self._one_from_db("SELECT id FROM things WHERE id IN (SELECT location_id FROM things WHERE id = ?)", (id,))
@@ -150,7 +150,7 @@ class Mica:
         print("get_location: %d is in %d" % (id, results[0]))
         return results[0]
 
-    def resolve_many_things_for(id, thing):
+    def resolve_many_things_for(self, id, thing):
         """Returns a list of all the Thing ids that the text string `thing' could possibly match, using the syntax used by commands & players to refer to objects, from the point-of-view of the Thing with id `id'; that is, it will include objects contained by that Thing as well as objects in the same location as it."""
         thing.strip()
 
@@ -178,7 +178,7 @@ class Mica:
             matches = [x[0] for x in candidates if thing in x[1]]
             return matches
 
-    def resolve_one_thing_for(id, thing):
+    def resolve_one_thing_for(self, id, thing):
         """Like resolve_many_things_for, but either returns a single id or raises TooManyResultsException or NotEnoughResultsException as appropriate."""
         results = self.resolve_many_things_for(id, thing)
         if len(results) > 1:
@@ -188,7 +188,7 @@ class Mica:
         else:
             return results[0]
 
-    def thing_displayname(id, name):
+    def thing_displayname(self, id, name):
         """Returns a string showing a Thing's name with its database number appended, as appropriate for output to users; this is purely a formatting function and no checking is done."""
         return "%s [%d]" % (id, name)
 
@@ -200,17 +200,17 @@ class Mica:
     # 1. The objects will always be unique among all links and will never change over the lifetime of the link, making them usable as an index (e.g. for state associated with the connection.)
     # 2. They will support a write() method which takes a chunk of UTF-8 encoded text in a single argument and writes it onto the link; this method will not need to be called multiple times to safely assume the whole text has been sent, will buffer if necessary, and should not block.
     # 3. They will support a kill() method that forcefully disconnects the client on the other end of the link. The network code should [I hope] be able to take care of calling on_disconnection() itself in that case.
-    def line(text):
+    def line(self, text):
         """Encapsulates the process of adding a proper newline to the end of lines, just in case it ever needs to be changed."""
         return text + "\r\n"
 
-    def on_connection(new_link):
+    def on_connection(self, new_link):
         """Called by network code when a new connection is received from a client."""
         client_states[new_link] = {'character': -1}
         new_link.write(self.line(texts['welcome']))
         logging.info("Got link " + repr(new_link))
 
-    def on_text(link, text):
+    def on_text(self, link, text):
         """Called by network code when some text is received from a previously connected client.
         The result of network code calling this function with a link object that has not been previously passed to on_connection is undefined."""
         assert link in client_states
@@ -239,14 +239,14 @@ class Mica:
 
         link.write(self.line(texts['cmd404']))
 
-    def on_disconnection(old_link):
+    def on_disconnection(self, old_link):
         """Called by network code when a connection dies.
         The result of re-using an old link object again once it has been passed to this function is undefined."""
         assert old_link in client_states
         del client_states[old_link]
         logging.info("Losing link " + repr(old_link))
 
-    def _try_login(link, args):
+    def _try_login(self, link, args):
         """Called internally to process logins."""
         # TODO: allow double-quote parsing? Maybe?
         args = args.split(' ')
@@ -268,7 +268,7 @@ class Mica:
     #
     # Interface for adding commands to the system.
     # (Note that decorators are @ immediately followed by an _expression_: If the expression is just a name, it evaluates to the function named that, but it can also be a function call, in which case python calls that function when evaluating the expression instead. The _result of evaluation_ should be a function, which is called on the function being decorated and returns a new function that effectively replaces it. So this returns a function that is called on the actual function being decorated.)
-    def command(name):
+    def command(self, name):
         """Decorator function. Use like @mica_instance.command("look") on the function implementing the command."""
         # We can capture `name' in a closure.
         def add_this_command(fn):
@@ -276,7 +276,7 @@ class Mica:
             return fn # We just want the side effects.
         return add_this_command
 
-    def pov_get_thing_by_name(link, thing):
+    def pov_get_thing_by_name(self, link, thing):
         """Resolve what Thing a user connected to `link' would be referring to.
         If no object can be found or the result is ambiguous, this function throws a CommandProcessingError; command implementations should only catch this error in order to do any necessary cleanup or revert their actions, and it is strongly encouraged that all resolution be done before doing anything that would need to be reverted in case the objects being resolved did not exist, if possible."""
         assert link in self.client_states
