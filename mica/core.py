@@ -206,15 +206,15 @@ class Mica:
 
     def on_connection(self, new_link):
         """Called by network code when a new connection is received from a client."""
-        client_states[new_link] = {'character': -1}
+        self.client_states[new_link] = {'character': -1}
         new_link.write(self.line(texts['welcome']))
         logging.info("Got link " + repr(new_link))
 
     def on_text(self, link, text):
         """Called by network code when some text is received from a previously connected client.
         The result of network code calling this function with a link object that has not been previously passed to on_connection is undefined."""
-        assert link in client_states
-        s = client_states[link]['character']
+        assert link in self.client_states
+        s = self.client_states[link]['character']
 
         if s == -1:
             cmd = "connect"
@@ -224,7 +224,7 @@ class Mica:
                 link.write(self.line(texts['cmd404']))
             return
 
-        for cmd in commands:
+        for cmd in self._commands:
             if cmd[0] == text[:len(cmd[0])]:
                 try:
                     cmd[1](link, text[len(cmd[0])+1:])
@@ -242,8 +242,8 @@ class Mica:
     def on_disconnection(self, old_link):
         """Called by network code when a connection dies.
         The result of re-using an old link object again once it has been passed to this function is undefined."""
-        assert old_link in client_states
-        del client_states[old_link]
+        assert old_link in self.client_states
+        del self.client_states[old_link]
         logging.info("Losing link " + repr(old_link))
 
     def _try_login(self, link, args):
@@ -258,7 +258,7 @@ class Mica:
         # Again, TODO: Password hashing
         if acct[0] == args[1]:
             assert self.get_thing(acct[1]) is not None    # TODO: Is this really necessary? It might be a significant performance drop (more database calls, even more if the object has a lot of objects in it), which could matter since malicious users can try to sign in very frequently, and they don't need to authenticate themselves first (duh.)
-            client_states[link]['character'] = acct[1]
+            self.client_states[link]['character'] = acct[1]
             return True
         else:
             link.write(self.line(texts['badLogin']))
@@ -272,7 +272,7 @@ class Mica:
         """Decorator function. Use like @mica_instance.command("look") on the function implementing the command."""
         # We can capture `name' in a closure.
         def add_this_command(fn):
-            commands.append((name, fn))
+            self._commands.append((name, fn))
             return fn # We just want the side effects.
         return add_this_command
 

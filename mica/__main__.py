@@ -8,6 +8,9 @@ import net_helpers
 import core
 import commands
 
+import logging
+logging.basicConfig(level=logging.INFO)
+
 
 # Options parsing, other initialization, and higher-level server logic.
 # TODO: --help

@@ -30,6 +30,6 @@ def implement(m):
         link.write(here[1] + m.line(''))
 
         print("to get_contents: %s" % repr(here[0]))
-        contents = ", ".join([m.thing_displayname(m.get_thing(x)[0], x) for x in self.get_contents(tgt)])
+        contents = ", ".join([m.thing_displayname(m.get_thing(x)[0], x) for x in m.get_contents(tgt)])
         if len(contents) > 0:
             link.write(m.line(core.texts['beforeListingContents'] + contents))
