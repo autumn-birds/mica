@@ -181,6 +181,8 @@ class Mica:
     def resolve_one_thing_for(self, id, thing):
         """Like resolve_many_things_for, but either returns a single id or raises TooManyResultsException or NotEnoughResultsException as appropriate."""
         results = self.resolve_many_things_for(id, thing)
+        if results is None:
+            raise NotEnoughResultsException()
         if len(results) > 1:
             raise TooManyResultsException()
         elif len(results) < 1:
