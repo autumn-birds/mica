@@ -105,7 +105,7 @@ class Mica:
             print("one_from_db: returning %s" % repr(results[0]))
             return results[0]
 
-    def find_account(self, account):
+    def get_account(self, account):
         """Return a tuple of (password, objectID) for the given account name, if it exists and is not ambiguous."""
         assert type(account) is str
         try:
@@ -255,7 +255,7 @@ class Mica:
         if len(args) != 2:
             link.write(self.line(texts['cmdSyntax'] % "connect <username> <password>"))
             return
-        acct = self.find_account(args[0])
+        acct = self.get_account(args[0])
 
         # Again, TODO: Password hashing
         if acct[0] == args[1]:
