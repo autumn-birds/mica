@@ -4,6 +4,7 @@
 # TODO: Factor the messages out into their own file so we don't need this.
 # (TODO: Or make m.texts an alias to core.texts...which makes more sense and less sense at the same time...)
 import core
+import logging
 
 def implement(m):
     @m.command("look")
@@ -21,7 +22,7 @@ def implement(m):
                 return
 
         here = m.get_thing(tgt)
-        print("here = %s", repr(here))
+        logging.info("here = %s" % repr(here))
         if here is None:
             # The functions to find out the thing from the database didn't work.
             link.write(m.line(core.texts['thing404'] % '(this is a big problem)'))
