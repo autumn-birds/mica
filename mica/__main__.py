@@ -67,7 +67,7 @@ def main():
                 (lines, eof) = link.read()
 
                 for line in lines:
-                    mica.on_text(link, line.replace("\r\n", ""))
+                    mica.on_text(link, line.replace("\r\n", "").replace("\n", ""))
 
                 if eof:
                     sel.unregister(s)
