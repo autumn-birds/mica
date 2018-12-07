@@ -32,14 +32,50 @@ class CommandProcessingError(Exception):
     pass
 
 
+class Thing:
+    # TODO:
+    # DONE -> Move to arbitrary number of arbitrarily named properties (that is, drop 'desc' as a field, and implement a properties table mapping name/value pairs to Things.)
+    # DONE -> If possible, write [], []=, and del[] accessors for Thing so it looks neat in use. These are allowed to read from or write to the database as necessary.
+    # -> Factor the remaining database logic to do with Things that exists in the Mica class currently, out into this class.
+    # -> Deal with calling commit() somehow.
+
+    def __init__(self, mica, dbref):
+        self.mica = mica
+        self.id = dbref
+        self.name = mica._one_from_db("SELECT name FROM things WHERE id=?", (self.id,))
+
+    def __getitem__(self, key):
+        try:
+            (k, v) = self.mica._one_from_db("SELECT name, val FROM properties WHERE object_id=? AND name=?",
+                (self.id, key))
+            assert k == key
+            return v
+        except NotEnoughResultsException:
+            # For some reason this still prints the NotEnoughResultsException in the traceback as well, and I'm not really sure why.
+            raise KeyError
+
+    def __setitem__(self, key, value):
+        self.mica._calldb("INSERT INTO properties (object_id, name, val) VALUES (?,?,?) ON CONFLICT(object_id,name) DO UPDATE SET val=excluded.val", (self.id, key, value))
+
+    def __delitem__(self, key):
+        if self.get(key, None) is not None:
+            self.mica._calldb("DELETE FROM properties WHERE object_id=? AND name=?", (self.id, key))
+        else:
+            raise KeyError
+
+    def get(self, key, default):
+        try:
+            return self[key]
+        except KeyError:
+            return default
+
+
 class Mica:
-    def __init__(self, db=None):
+    def __init__(self, db):
         """Setup the class.
         `db` should be a SQLite3 database object created with the default `sqlite3` module; if `db` is None, a database will be created in-memory, and there will be no data persistence.
         If `db` is not None, the caller is responsible for determining whether setup_db() needs to be called (e.g., whether it's a new database or an old one.)"""
         self.db = db
-        if self.db is None:
-            self.setup_db()
 
         # This list stores all the names of commands that could be run, associated with their functions.
         # It is a list and not a dict because it might need to be ordered, although if that is the case the ordering should probably be enforced internally rather than depending on callers to register their commands in a problem-free order.
@@ -58,25 +94,31 @@ class Mica:
         """Initialize the database with a minimal default template.
         The result of calling this function when the database already has data in it is undefined."""
         dbSetup = [
-          "CREATE TABLE things (id INTEGER PRIMARY KEY, owner_id INTEGER, location_id INTEGER, name TEXT, desc TEXT)",
+          "CREATE TABLE things (id INTEGER PRIMARY KEY, owner_id INTEGER, location_id INTEGER, name TEXT)",
           "CREATE TABLE accounts (id INTEGER PRIMARY KEY, character_id INTEGER, password TEXT)",
           "CREATE TABLE links (id INTEGER PRIMARY KEY, name TEXT, from_id INTEGER, to_id INTEGER)",
+          "CREATE TABLE properties (id INTEGER PRIMARY KEY, name TEXT, val TEXT, object_id INTEGER, " +
+            "CONSTRAINT noduplicates UNIQUE (object_id, name))",
+
+          "INSERT INTO things (id, owner_id, location_id, name) VALUES (1, 1, 2, \"One\")",
+          "INSERT INTO properties (object_id, name, val) VALUES (1, \"desc\", \"A nameless, faceless, ageless, gender-neutral, culturally ambiguous embodiment of... well, it's not clear, really.\")",
+
+          "INSERT INTO things (id, owner_id, location_id, name) VALUES (2, 1, 2, \"Nexus\")",
+          "INSERT INTO properties (object_id, name, val) VALUES (2, \"desc\", \"It is a place: that is about all you can be sure of.\")",
           
-          "INSERT INTO things (id, owner_id, location_id, name, desc) VALUES (1, 1, 2, \"One\", \"A nameless, faceless, ageless, gender-neutral, culturally ambiguous embodiment of... well, it's not clear, really.\")",
-          "INSERT INTO things (id, owner_id, location_id, name, desc) VALUES (2, 1, 2, \"Nexus\", \"It is a place: that is about all you can be sure of.\")",
           # TODO: Password hashing
           "INSERT INTO accounts (character_id, password) VALUES (1, \"potrzebie\")"
         ]
 
-        try:
-            Cx_setup = self.db.cursor()
-            for cmd in dbSetup:
+        Cx_setup = self.db.cursor()
+        for cmd in dbSetup:
+            try:
                 Cx_setup.execute(cmd)
-            self.db.commit()
-            Cx_setup = None
-        except:
-            print("ERROR SETTING UP INITIAL DATABASE:\n\n")
-            raise
+            except:
+                print("setup_db(): Error executing command << %s >>:" % cmd)
+                raise
+        self.db.commit()
+        Cx_setup = None
 
     def _calldb(self, query, opts=None):
         """Execute a database query `query` with the optional tuple of data `opts` and return the cursor that was used to execute the query, on which, for example, fetchall() or similar methods can be called.
@@ -87,6 +129,10 @@ class Mica:
         else:
             Cx.execute(query)
         return Cx
+
+    def _commitdb(self):
+        """Call the sqlite3 commit() function."""
+        self.db.commit()
 
     def _from_db(self, query, opts=None):
         """Return the results from fetchall() of a database query; just for convenience."""
@@ -122,12 +168,23 @@ class Mica:
 
     def get_thing(self, id):
         """Call up the database and return the name and desc of a Thing (in a tuple), or None if there is none with that id."""
-        assert type(id) is int
+        # assert type(id) is int
+        # try:
+            # thing = self._one_from_db("SELECT name, desc FROM things WHERE id=?", (id,))
+        # except NotEnoughResultsException:
+            # return None
+
+        # return thing
+
+        # Would it be better to just raise these exceptions everywhere and put generic catch statements in the command processing loop itself?
+
         try:
-            thing = self._one_from_db("SELECT name, desc FROM things WHERE id=?", (id,))
+            data = self._one_from_db("SELECT name, desc FROM things WHERE id=?", (id,))
         except NotEnoughResultsException:
             return None
-
+        thing = Thing(self, id)
+        thing.name = data[0]
+        thing.desc = data[1]
         return thing
 
     def get_contents(self, id):
