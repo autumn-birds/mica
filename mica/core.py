@@ -182,9 +182,8 @@ class Mica:
         """Initialize the database with a minimal default template.
         The result of calling this function when the database already has data in it is undefined."""
         dbSetup = [
-          "CREATE TABLE things (id INTEGER PRIMARY KEY, owner_id INTEGER, location_id INTEGER, name TEXT)",
+          "CREATE TABLE things (id INTEGER PRIMARY KEY, owner_id INTEGER, location_id INTEGER, passage_to NULLABLE INTEGER, name TEXT)",
           "CREATE TABLE accounts (id INTEGER PRIMARY KEY, character_id INTEGER, password TEXT)",
-          "CREATE TABLE links (id INTEGER PRIMARY KEY, name TEXT, from_id INTEGER, to_id INTEGER)",
           "CREATE TABLE properties (id INTEGER PRIMARY KEY, name TEXT, val TEXT, object_id INTEGER, " +
             "CONSTRAINT noduplicates UNIQUE (object_id, name))",
 
