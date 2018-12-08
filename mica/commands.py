@@ -3,34 +3,28 @@
 
 # TODO: Factor the messages out into their own file so we don't need this.
 # (TODO: Or make m.texts an alias to core.texts...which makes more sense and less sense at the same time...)
-import core
+#import core
+from core import texts
 import logging
 
 def implement(m):
     @m.command("look")
-    def do_look(link, text): #Should we be passing in the state object, instead of looking it up in client_states every time?
-        me = m.client_states[link]['character']
+    def do_look(link, text):
+        me = m.get_thing(m.client_states[link]['character'])
         assert me != -1
 
-        text.strip()
+        text = text.strip()
         if text != '':
+            # This will raise a CommandProcessingError for us if it can't find anything.
             tgt = m.pov_get_thing_by_name(link, text)
         else:
-            tgt = m.get_location(me)
+            tgt = me.location()
             if tgt is None:
-                link.write(m.line(core.texts['youAreNowhere']))
+                link.write(texts['youAreNowhere'])
                 return
 
-        here = m.get_thing(tgt)
-        logging.info("here = %s" % repr(here))
-        if here is None:
-            # The functions to find out the thing from the database didn't work.
-            link.write(m.line(core.texts['thing404'] % '(this is a big problem)'))
-
-        link.write(m.line(m.thing_displayname(here[0], tgt)))
-        link.write(here[1] + m.line(''))
-
-        print("to get_contents: %s" % repr(here[0]))
-        contents = ", ".join([m.thing_displayname(m.get_thing(x)[0], x) for x in m.get_contents(tgt)])
+        link.write(m.line(tgt.display_name()))
+        link.write(tgt.get('desc', texts['descMissing']))
+        contents = ", ".join([x.display_name() for x in tgt.contents()])
         if len(contents) > 0:
-            link.write(m.line(core.texts['beforeListingContents'] + contents))
+            link.write(contents)
