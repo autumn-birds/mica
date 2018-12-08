@@ -47,10 +47,10 @@ class Thing:
     def __init__(self, mica, dbref):
         assert type(mica) is Mica
         self.mica = mica
-        assert type(dbref) is int
-        self.id = dbref
 
-        self.name = mica._one_from_db("SELECT name FROM things WHERE id=?", (self.id,))[0]
+        assert type(dbref) is int
+        # This might seem strange, but we need to make sure the dbref is valid; calling this function will raise a NotEnoughResultsException if it isn't.
+        self.id = self.mica._one_from_db("SELECT id FROM things WHERE id=?", (dbref,))[0]
 
     def __getitem__(self, key):
         """Return the property named `key' set on this thing.
@@ -84,9 +84,41 @@ class Thing:
         except KeyError:
             return default
 
-    def move(self, to_thing):
-        """Move this Thing into another Thing."""
-        self.mica._calldb("UPDATE things SET location_id=? WHERE id=?", (to_thing.id, self.id))
+    def name(self):
+        """Return the Thing's name."""
+        return self.mica._one_from_db("SELECT name FROM things WHERE id=?", (self.id,))[0]
+
+    def set_name(self, newname):
+        """Rename this thing to `newname'."""
+        assert type(newname) is str
+        self.mica._calldb("UPDATE things SET name=? WHERE id=?", (newname, self.id))
+
+    def destination(self):
+        """If this Thing is not a passage, this value will be None.
+        But if it IS a passage, this value will be the id of another Thing (e.g., the one it is an exit to.)"""
+        try:
+            result = self.mica._one_from_db("SELECT passage_to FROM things WHERE id=?", self.id)[0]
+            return self.mica.get_thing(result)
+        except NotEnoughResultsException:
+            return None
+
+    def set_destination(self, new_dest):
+        """Set the destination to new_dest (a Thing, or None.)"""
+        assert type(new_dest) is Thing or new_dest is None
+        if new_dest is None:
+            self.mica._calldb("UPDATE things SET passage_to=? WHERE id=?", (None, self.id))
+        else:
+            self.mica._calldb("UPDATE things SET passage_to=? WHERE id=?", (new_dest.id, self.id))
+
+    def location(self):
+        """Return the Thing where this Thing is located; or None if that Thing does not exist in the database."""
+        # (Should this raise an exception instead?)
+        try:
+            results = self.mica._one_from_db("SELECT id FROM things WHERE id IN (SELECT location_id FROM things WHERE id = ?)", (self.id,))
+        except NotEnoughResultsException:
+            return None
+        print("get_location: %d is in %d" % (self.id, results[0]))
+        return self.mica.get_thing(results[0])
 
     def contents(self):
         """Return a list of Things that are in this Thing."""
@@ -99,14 +131,9 @@ class Thing:
                 contents.append(self.mica.get_thing(content[0]))
         return contents
 
-    def location(self):
-        """Return the id of the Thing where this Thing is located; or None if that Thing does not exist in the database."""
-        try:
-            results = self.mica._one_from_db("SELECT id FROM things WHERE id IN (SELECT location_id FROM things WHERE id = ?)", (self.id,))
-        except NotEnoughResultsException:
-            return None
-        print("get_location: %d is in %d" % (self.id, results[0]))
-        return self.mica.get_thing(results[0])
+    def move(self, to_thing):
+        """Move this Thing into another Thing."""
+        self.mica._calldb("UPDATE things SET location_id=? WHERE id=?", (to_thing.id, self.id))
 
     def resolve_many_things(self, thing):
         """Returns a list of all the Things that the text string `thing' could possibly match, using the syntax used by commands & players to refer to objects, from the point-of-view of this object.
@@ -139,7 +166,7 @@ class Thing:
         whereami = self.location()
         if whereami is not None:
             # Consider items you're carrying.
-            candidates = [(x.id, x.name) for x in self.contents()]
+            candidates = [(x.id, x.name()) for x in self.contents()]
             matches = [self.mica.get_thing(x[0]) for x in candidates if thing in x[1]]
             return matches
 
@@ -158,7 +185,7 @@ class Thing:
 
     def display_name(self):
         """Returns the Thing's name (string) as it should be displayed to users; e.g., with the database number included, for example."""
-        return "%s [%d]" % (self.name, self.id)
+        return "%s [%d]" % (self.name(), self.id)
 
 
 class Mica:
