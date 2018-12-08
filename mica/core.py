@@ -16,6 +16,7 @@ texts = {
     'cmdErrUnspecified': "[!!] There was a problem processing your command, but no explanation has been provided. Please bother your local developers.",
 
     'youAreNowhere': "You... erm... don't seem to actually be in a location that exists.  This is, um, honestly, really embarrassing and we're not sure what to do about it.",
+    'descMissing': "You see a strange and unnerving lack of emptiness.",
     'beforeListingContents': "You can see: ",
 }
 
@@ -45,7 +46,7 @@ class Thing:
         assert type(dbref) is int
         self.id = dbref
 
-        self.name = mica._one_from_db("SELECT name FROM things WHERE id=?", (self.id,))
+        self.name = mica._one_from_db("SELECT name FROM things WHERE id=?", (self.id,))[0]
 
     def __getitem__(self, key):
         """Return the property named `key' set on this thing.
@@ -80,14 +81,14 @@ class Thing:
             return default
 
     def contents(self):
-        """Return a list of ids of Things whose location is this Thing.
-        This function doesn't necessarily check if the Thing it's called on has been deleted, but the ids returned should exist at the time it's called."""
+        """Return a list of Things that are in this Thing."""
         assert type(self.id) is int
         contents = []
         for content in self.mica._from_db("SELECT id FROM things WHERE location_id=?", (self.id,)):
-            if content[0] != id:
+            if content[0] != self.id:
                 assert type(content[0] is int)
-                contents.append(content[0])
+                # This should never not exist, since we just SELECTed it.
+                contents.append(self.mica.get_thing(content[0]))
         return contents
 
     def location(self):
@@ -96,23 +97,23 @@ class Thing:
             results = self.mica._one_from_db("SELECT id FROM things WHERE id IN (SELECT location_id FROM things WHERE id = ?)", (self.id,))
         except NotEnoughResultsException:
             return None
-        print("get_location: %d is in %d" % (id, results[0]))
-        return results[0]
+        print("get_location: %d is in %d" % (self.id, results[0]))
+        return self.mica.get_thing(results[0])
 
     def resolve_many_things(self, thing):
-        """Returns a list of all the Thing ids that the text string `thing' could possibly match, using the syntax used by commands & players to refer to objects, from the point-of-view of this object.
+        """Returns a list of all the Things that the text string `thing' could possibly match, using the syntax used by commands & players to refer to objects, from the point-of-view of this object.
         That is, considers objects that are inside this object and objects that are in its current location along with it."""
         thing.strip()
 
         if thing == 'me':
             # TODO: Maybe we should check this too.  Just to be extra pedantic.
             # I don't know if maybe we shouldn't just have a check_id_exists() function or something.
-            return [self.id]
+            return [self]
 
         if thing == 'here':
             l = self.location()
             if l is not None and type(l) is int:
-                return [l]
+                return [self.mica.get_thing(l)]
             else:
                 return []
 
@@ -120,23 +121,21 @@ class Thing:
             try:
                 dbref = int(thing[1:])
             except ValueError():
-                return None
+                return []
 
             try:
-                target = self.mica._one_from_db("SELECT id FROM things WHERE id=?", (dbref,))
-                return [int(target[0])]
+                return [self.mica.get_thing(dbref)]
             except NotEnoughResultsException:
-                return None
+                return []
 
         whereami = self.location()
         if whereami is not None:
             # Consider items you're carrying.
-            candidates = [self.mica.get_thing(x) for x in self.contents()]
-            candidates = [(x.name, x.id) for x in candidates]
+            candidates = [(x.name, x.id) for x in self.contents()]
             matches = [x[0] for x in candidates if thing in x[1]]
             return matches
 
-    def resolve_one_thing(self, id, thing):
+    def resolve_one_thing(self, thing):
         """Like resolve_many_things, but either returns a single id (as a number, *not* a single-item array) or raises TooManyResultsException or NotEnoughResultsException as appropriate."""
         results = self.resolve_many_things(thing)
         if results is None:
@@ -146,12 +145,12 @@ class Thing:
         elif len(results) < 1:
             raise NotEnoughResultsException()
         else:
-            assert results[0] is int
+            assert type(results[0]) is Thing
             return results[0]
 
-    def thing_displayname(self, id, name):
+    def display_name(self):
         """Returns the Thing's name (string) as it should be displayed to users; e.g., with the database number included, for example."""
-        return "%s [%d]" % (self.id, self.name)
+        return "%s [%d]" % (self.name, self.id)
 
 
 class Mica:
@@ -224,7 +223,7 @@ class Mica:
     def _one_from_db(self, query, opts=None):
         """Like from_db, but guarantees there is exactly one result returned--no more, no less.
         Will raise TooManyResultsException and NotEnoughResultsException as appropriate.
-        Returns the singular result on its own and not wrapped in a containing array, so watch your semantics."""
+        Returns the singular result on its own and not wrapped in a containing array, so watch your semantics.  But also remember the result will probably still be a tuple (of a row, even with one object.)"""
         results = self._from_db(query, opts)
         if len(results) < 1:
             raise NotEnoughResultsException()
@@ -290,7 +289,7 @@ class Mica:
             return
 
         for cmd in self._commands:
-            if cmd[0] == text[:len(cmd[0])]:
+            if cmd[0] + ' ' == text[:len(cmd[0])+1] or cmd[0].strip() == text.strip():
                 try:
                     cmd[1](link, text[len(cmd[0])+1:])
                 except CommandProcessingError as e:
@@ -342,14 +341,14 @@ class Mica:
         return add_this_command
 
     def pov_get_thing_by_name(self, link, thing):
-        # TODO: This is another of those functions that could be folded into an `Account' class...
+        # TODO: This is another of those functions that could be folded into an `Account' class... maybe?
         """Resolve what Thing a user connected to `link' would be referring to.
         If no object can be found or the result is ambiguous, this function throws a CommandProcessingError; command implementations should only catch this error in order to do any necessary cleanup or revert their actions, and it is strongly encouraged that all resolution be done before doing anything that would need to be reverted in case the objects being resolved did not exist, if possible."""
         assert link in self.client_states
-        pov = self.client_states[link]['character']
+        pov = self.get_thing(self.client_states[link]['character'])
 
         try:
-            result = self.resolve_one_thing_for(pov, thing)
+            result = pov.resolve_one_thing(thing)
         except NotEnoughResultsException:
             raise CommandProcessingError(texts['thing404'] % thing)
         except TooManyResultsException:
