@@ -1,0 +1,9 @@
+>connect One potrzebie
+>make
+That command needs to be written similar to
+>make a thing
+Created in your inventory: a thing
+>i
+a thing [
+>look a thing
+You see a strange and unnerving lack of emptiness.

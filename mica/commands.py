@@ -4,6 +4,7 @@
 # TODO: Factor the messages out into their own file so we don't need this.
 # (TODO: Or make m.texts an alias to core.texts...which makes more sense and less sense at the same time...)
 from core import texts
+from core import CommandProcessingError
 import logging
 import re
 
@@ -36,7 +37,7 @@ def implement(m):
         me = m.get_thing(m.client_states[link]['character'])
 
         text = text.strip()
-        if len(text) < 0:
+        if len(text) <= 0:
             raise CommandProcessingError(texts['cmdSyntax'] % 'make name of object')
 
         result = m.add_thing(me, text)
