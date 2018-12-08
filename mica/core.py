@@ -304,9 +304,13 @@ class Mica:
                     else:
                         link.write(self.line(texts['cmdErrUnspecified']))
                 except:
+                    tx = traceback.format_exc(chain=False)
+                    logging.error('While processing command: %s' % text)
+                    logging.error(tx)
+
                     link.write(self.line(texts['cmdErrUnspecified']))
                     if self.show_tracebacks:
-                        link.write(self.line(texts['err'] % traceback.format_exc(chain=False)))
+                        link.write(self.line(texts['err'] % tx))
                     else:
                         link.write(self.line(texts['err'] % "Exception not printed"))
 
