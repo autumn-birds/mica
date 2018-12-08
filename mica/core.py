@@ -36,13 +36,9 @@ class CommandProcessingError(Exception):
 
 
 class Thing:
-    # TODO:
-    # DONE -> Move to arbitrary number of arbitrarily named properties (that is, drop 'desc' as a field, and implement a properties table mapping name/value pairs to Things.)
-    # DONE -> If possible, write [], []=, and del[] accessors for Thing so it looks neat in use. These are allowed to read from or write to the database as necessary.
-    # -> Factor the remaining database logic to do with Things that exists in the Mica class currently, out into this class.
-    # -> Deal with calling commit() somehow.
-    # -> Write doc strings.
-
+    """Represents a single object in the Mica database.
+    Most methods you call on this object will access the database directly, but it is still possible to have a Thing instance that does not agree with the database; for example, one whose records in the database don't actually exist.
+    If this happens, you will encounter problems."""
     def __init__(self, mica, dbref):
         assert type(mica) is Mica
         self.mica = mica
@@ -302,6 +298,9 @@ class Mica:
                         link.write(self.line(texts['cmdErrWithArgs'] % repr(e.args)))
                     else:
                         link.write(self.line(texts['cmdErrUnspecified']))
+
+                    self.db.rollback()
+                    return
                 except:
                     tx = traceback.format_exc(chain=False)
                     logging.error('While processing command: %s' % text)
@@ -313,7 +312,11 @@ class Mica:
                     else:
                         link.write(self.line(texts['err'] % "Exception not printed"))
 
-                return
+                    self.db.rollback()
+                    return
+
+                # We got here without exceptions, so everything is (probably sort of) okay.
+                self.db.commit()
 
         link.write(self.line(texts['cmd404']))
 
