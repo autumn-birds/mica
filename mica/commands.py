@@ -27,7 +27,7 @@ def implement(m):
         link.write(m.line(tgt.get('desc', texts['descMissing'])))
         contents = ", ".join([x.display_name() for x in tgt.contents()])
         if len(contents) > 0:
-            link.write(m.line(contents))
+            link.write(m.line(texts['beforeListingContents'] + contents))
 
     @m.command("crash")
     def do_badly(link, text):
