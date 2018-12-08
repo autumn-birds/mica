@@ -180,6 +180,12 @@ class Mica:
         # Set this to True to print tracebacks to the user.
         self.show_tracebacks = False
 
+        # These strings are run for each user when they connect as though they were normal command lines.
+        self.login_commands = []
+
+        # This message will be shown to users when they log in, if it is not None.
+        self.motd = None
+
 
     #
     # Database functions (accessing and updating objects, etc.)
@@ -359,6 +365,10 @@ class Mica:
             #assert self.get_thing(acct[1]) is not None    # TODO: Is this really necessary? It might be a significant performance drop (more database calls, even more if the object has a lot of objects in it), which could matter since malicious users can try to sign in very frequently, and they don't need to authenticate themselves first (duh.)
             # ... It raises NotEnoughResultsException now, so I just commented it out for now.
             self.client_states[link]['character'] = acct[1]
+            if self.motd is not None:
+                link.write(self.line(self.motd))
+            for cmd in self.login_commands:
+                self.on_text(link, cmd)
             return True
         else:
             link.write(self.line(texts['badLogin']))

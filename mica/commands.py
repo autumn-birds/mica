@@ -75,3 +75,5 @@ def implement(m):
     @m.command("crash")
     def do_badly(link, text):
         raise Exception("This isn't a good thing.")
+
+    m.login_commands.append("look")
