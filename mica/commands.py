@@ -11,6 +11,7 @@ def implement(m):
     # TODO: Since we're basically grabbing our character object at the beginning of every command so far anyway, we should consider just having the Mica class pass it in to begin with.
     # TODO: Write docstrings for everything, then implement `help'.
     @m.command("look")
+    @m.command("l")
     def do_look(link, text):
         me = m.get_thing(m.client_states[link]['character'])
 
@@ -58,6 +59,7 @@ def implement(m):
         link.write(m.line(texts['setAttrToValSuccess'] % (attr, val)))
 
     @m.command("inventory")
+    @m.command("i")
     def do_inventory(link, text):
         me = m.get_thing(m.client_states[link]['character'])
 
