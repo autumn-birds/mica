@@ -17,6 +17,8 @@ class LineBufferingSocketContainer:
       self.encoding = "utf-8"
       self.linesep = 10         # ASCII/UTF-8 newline
 
+      self.on_write = None
+
       if socket != None:
          self.attach_socket(socket)
 
@@ -35,6 +37,8 @@ class LineBufferingSocketContainer:
    def write(self, data):
       """Write some bytes to the underlying socket."""
       if type(data) is str:
+        if self.on_write is not None:
+          self.on_write(data)
         data = data.encode(self.encoding)
 
       assert type(data) == bytes

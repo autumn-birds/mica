@@ -1,7 +1,6 @@
 #!/usr/bin/python3
 
 import logging
-logging.basicConfig(level=logging.INFO)
 
 
 # Default messages that would otherwise be hard-coded about in the code.
@@ -232,7 +231,7 @@ class Mica:
         elif len(results) > 1:
             raise TooManyResultsException()
         else:
-            print("one_from_db: returning %s" % repr(results[0]))
+            logging.info("one_from_db: returning %s" % repr(results[0]))
             return results[0]
 
     def get_account(self, account):

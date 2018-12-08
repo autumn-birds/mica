@@ -9,12 +9,13 @@ import core
 import commands
 
 import logging
-logging.basicConfig(level=logging.INFO)
+# Change to INFO or DEBUG for more messages
+logging.basicConfig(level=logging.WARNING)
 
 
 # Options parsing, other initialization, and higher-level server logic.
 # TODO: --help
-(opts, args) = getopt.getopt(sys.argv[1:], '', ['host=', 'port=', 'initDB'])
+(opts, args) = getopt.getopt(sys.argv[1:], '', ['host=', 'port=', 'print-io', 'initDB'])
 
 _opts = {}
 for pair in opts:
@@ -46,8 +47,11 @@ def main():
     sel = selectors.DefaultSelector()
     sel.register(server, selectors.EVENT_READ)
 
-    # A dict of socket objects, pointing to the LineBufferingSocketContainer (see liner_helpers.py) that deals with that particular socket.
+    # A dict of socket objects, pointing to the LineBufferingSocketContainer (see net_helpers.py) that deals with that particular socket.
     wrappedSockets = {}
+
+    # We can be instructed to print everything that gets received or sent, to make it easier to see what's going on when running tests or debugging.
+    DO_PRINT_IO = 'print-io' in opts
 
     while True:
         events = sel.select()
@@ -58,6 +62,8 @@ def main():
                 (connection, address) = s.accept()
                 logging.info("Got socket " + repr(connection) + "with address" + repr(address))
                 wrappedSockets[connection] = net_helpers.LineBufferingSocketContainer(connection)
+                if DO_PRINT_IO:
+                    wrappedSockets[connection].on_write = lambda x: print("server> %s" % x.rstrip())
                 mica.on_connection(wrappedSockets[connection])
                 sel.register(connection, selectors.EVENT_READ)
             else:
@@ -67,7 +73,10 @@ def main():
                 (lines, eof) = link.read()
 
                 for line in lines:
-                    mica.on_text(link, line.replace("\r\n", ""))
+                    text = line.replace("\r\n", "").replace("\n", "")
+                    if DO_PRINT_IO:
+                        print("client> %s" % text)
+                    mica.on_text(link, text)
 
                 if eof:
                     sel.unregister(s)
