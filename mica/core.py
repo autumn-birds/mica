@@ -38,13 +38,19 @@ class Thing:
     # DONE -> If possible, write [], []=, and del[] accessors for Thing so it looks neat in use. These are allowed to read from or write to the database as necessary.
     # -> Factor the remaining database logic to do with Things that exists in the Mica class currently, out into this class.
     # -> Deal with calling commit() somehow.
+    # -> Write doc strings.
 
     def __init__(self, mica, dbref):
+        assert type(mica) is Mica
         self.mica = mica
+        assert type(dbref) is int
         self.id = dbref
+
         self.name = mica._one_from_db("SELECT name FROM things WHERE id=?", (self.id,))
 
     def __getitem__(self, key):
+        """Return the property named `key' set on this thing.
+        Note that although this is a special function intended to allow you to use Things with the same syntax you do dicts, e.g., thing['desc'] = my_description, it does in fact access the database each time it is called."""
         try:
             (k, v) = self.mica._one_from_db("SELECT name, val FROM properties WHERE object_id=? AND name=?",
                 (self.id, key))
@@ -55,26 +61,104 @@ class Thing:
             raise KeyError
 
     def __setitem__(self, key, value):
+        """Set the property named `key' on this thing to `value' on this thing, creating it if it does not exist (will never raise KeyError.)
+        Note that although this is a special function intended to allow you to use Things with the same syntax you do dicts, e.g., thing['desc'] = my_description, it does in fact access the database each time it is called."""
         self.mica._calldb("INSERT INTO properties (object_id, name, val) VALUES (?,?,?) ON CONFLICT(object_id,name) DO UPDATE SET val=excluded.val", (self.id, key, value))
 
     def __delitem__(self, key):
+        """Delete the property named `key' on this Thing.
+        Note that although this is a special function intended to allow you to use Things with the same syntax you do dicts, e.g., thing['desc'] = my_description, it does in fact access the database each time it is called."""
         if self.get(key, None) is not None:
             self.mica._calldb("DELETE FROM properties WHERE object_id=? AND name=?", (self.id, key))
         else:
             raise KeyError
 
     def get(self, key, default):
+        """Like get() of the builtin dict type, but for Things -- if `key' doesn't exist, returns `default' instead of raising KeyError."""
         try:
             return self[key]
         except KeyError:
             return default
 
+    def contents(self):
+        """Return a list of ids of Things whose location is this Thing.
+        This function doesn't necessarily check if the Thing it's called on has been deleted, but the ids returned should exist at the time it's called."""
+        assert type(self.id) is int
+        contents = []
+        for content in self.mica._from_db("SELECT id FROM things WHERE location_id=?", (self.id,)):
+            if content[0] != id:
+                assert type(content[0] is int)
+                contents.append(content[0])
+        return contents
+
+    def location(self):
+        """Return the id of the Thing where this Thing is located; or None if that Thing does not exist in the database."""
+        try:
+            results = self.mica._one_from_db("SELECT id FROM things WHERE id IN (SELECT location_id FROM things WHERE id = ?)", (self.id,))
+        except NotEnoughResultsException:
+            return None
+        print("get_location: %d is in %d" % (id, results[0]))
+        return results[0]
+
+    def resolve_many_things(self, thing):
+        """Returns a list of all the Thing ids that the text string `thing' could possibly match, using the syntax used by commands & players to refer to objects, from the point-of-view of this object.
+        That is, considers objects that are inside this object and objects that are in its current location along with it."""
+        thing.strip()
+
+        if thing == 'me':
+            # TODO: Maybe we should check this too.  Just to be extra pedantic.
+            # I don't know if maybe we shouldn't just have a check_id_exists() function or something.
+            return [self.id]
+
+        if thing == 'here':
+            l = self.location()
+            if l is not None and type(l) is int:
+                return [l]
+            else:
+                return []
+
+        if thing[0] == '#':
+            try:
+                dbref = int(thing[1:])
+            except ValueError():
+                return None
+
+            try:
+                target = self.mica._one_from_db("SELECT id FROM things WHERE id=?", (dbref,))
+                return [int(target[0])]
+            except NotEnoughResultsException:
+                return None
+
+        whereami = self.location()
+        if whereami is not None:
+            # Consider items you're carrying.
+            candidates = [self.mica.get_thing(x) for x in self.contents()]
+            candidates = [(x.name, x.id) for x in candidates]
+            matches = [x[0] for x in candidates if thing in x[1]]
+            return matches
+
+    def resolve_one_thing(self, id, thing):
+        """Like resolve_many_things, but either returns a single id (as a number, *not* a single-item array) or raises TooManyResultsException or NotEnoughResultsException as appropriate."""
+        results = self.resolve_many_things(thing)
+        if results is None:
+            raise NotEnoughResultsException()
+        if len(results) > 1:
+            raise TooManyResultsException()
+        elif len(results) < 1:
+            raise NotEnoughResultsException()
+        else:
+            assert results[0] is int
+            return results[0]
+
+    def thing_displayname(self, id, name):
+        """Returns the Thing's name (string) as it should be displayed to users; e.g., with the database number included, for example."""
+        return "%s [%d]" % (self.id, self.name)
+
 
 class Mica:
     def __init__(self, db):
         """Setup the class.
-        `db` should be a SQLite3 database object created with the default `sqlite3` module; if `db` is None, a database will be created in-memory, and there will be no data persistence.
-        If `db` is not None, the caller is responsible for determining whether setup_db() needs to be called (e.g., whether it's a new database or an old one.)"""
+        `db` should be a SQLite3 database object created with the default `sqlite3` module."""
         self.db = db
 
         # This list stores all the names of commands that could be run, associated with their functions.
@@ -152,7 +236,7 @@ class Mica:
             return results[0]
 
     def get_account(self, account):
-        """Return a tuple of (password, objectID) for the given account name, if it exists and is not ambiguous."""
+        """Return a tuple of (password, objectID) for the given account name, if it exists and is not ambiguous; otherwise, return None."""
         assert type(account) is str
         try:
             thingid = self._one_from_db("SELECT id FROM things WHERE name=? AND id IN (SELECT character_id FROM accounts)", (account,))
@@ -168,88 +252,11 @@ class Mica:
 
     def get_thing(self, id):
         """Call up the database and return the name and desc of a Thing (in a tuple), or None if there is none with that id."""
-        # assert type(id) is int
-        # try:
-            # thing = self._one_from_db("SELECT name, desc FROM things WHERE id=?", (id,))
-        # except NotEnoughResultsException:
-            # return None
-
-        # return thing
-
-        # Would it be better to just raise these exceptions everywhere and put generic catch statements in the command processing loop itself?
-
+        # Does name lookup itself. Can raise NotEnoughResultsException on inextant id
         try:
-            data = self._one_from_db("SELECT name, desc FROM things WHERE id=?", (id,))
+            return Thing(self, id)
         except NotEnoughResultsException:
             return None
-        thing = Thing(self, id)
-        thing.name = data[0]
-        thing.desc = data[1]
-        return thing
-
-    def get_contents(self, id):
-        """Return a list of ids of Things whose location is set to the `id' given; or more prosaically, a list of things that are in the Thing with id `id'.
-        This function doesn't check that the id given actually exists, but the ids returned should exist."""
-        assert type(id) is int
-        contents = []
-        for content in self._from_db("SELECT id FROM things WHERE location_id=?", (id,)):
-            if content[0] != id:
-                assert type(content[0] is int)
-                contents.append(content[0])
-        return contents
-
-    def get_location(self, id):
-        """Return the id of the place where the Thing with id `id' is, or None if the place doesn't exist."""
-        try:
-            results = self._one_from_db("SELECT id FROM things WHERE id IN (SELECT location_id FROM things WHERE id = ?)", (id,))
-        except NotEnoughResultsException:
-            return None
-        print("get_location: %d is in %d" % (id, results[0]))
-        return results[0]
-
-    def resolve_many_things_for(self, id, thing):
-        """Returns a list of all the Thing ids that the text string `thing' could possibly match, using the syntax used by commands & players to refer to objects, from the point-of-view of the Thing with id `id'; that is, it will include objects contained by that Thing as well as objects in the same location as it."""
-        thing.strip()
-
-        if thing == 'me':
-            # TODO: Maybe we should check this too.  Just to be extra pedantic.
-            # I don't know if maybe we shouldn't just have a check_id_exists() function or something.
-            return [id]
-
-        if thing[0] == '#':
-            try:
-                dbref = int(thing[1:])
-            except ValueError():
-                return None
-
-            try:
-                target = self._one_from_db("SELECT id FROM things WHERE id=?", (dbref,))
-                return [int(target[0])]
-            except NotEnoughResultsException:
-                return None
-
-        whereami = self.get_location(id)
-        if whereami is not None:
-            # Consider items you're carrying.
-            candidates = [(x, self.get_thing(x)[0]) for x in self.get_contents(whereami) + self.get_contents(id)]
-            matches = [x[0] for x in candidates if thing in x[1]]
-            return matches
-
-    def resolve_one_thing_for(self, id, thing):
-        """Like resolve_many_things_for, but either returns a single id or raises TooManyResultsException or NotEnoughResultsException as appropriate."""
-        results = self.resolve_many_things_for(id, thing)
-        if results is None:
-            raise NotEnoughResultsException()
-        if len(results) > 1:
-            raise TooManyResultsException()
-        elif len(results) < 1:
-            raise NotEnoughResultsException()
-        else:
-            return results[0]
-
-    def thing_displayname(self, id, name):
-        """Returns a string showing a Thing's name with its database number appended, as appropriate for output to users; this is purely a formatting function and no checking is done."""
-        return "%s [%d]" % (id, name)
 
 
     #
@@ -336,6 +343,7 @@ class Mica:
         return add_this_command
 
     def pov_get_thing_by_name(self, link, thing):
+        # TODO: This is another of those functions that could be folded into an `Account' class...
         """Resolve what Thing a user connected to `link' would be referring to.
         If no object can be found or the result is ambiguous, this function throws a CommandProcessingError; command implementations should only catch this error in order to do any necessary cleanup or revert their actions, and it is strongly encouraged that all resolution be done before doing anything that would need to be reverted in case the objects being resolved did not exist, if possible."""
         assert link in self.client_states
