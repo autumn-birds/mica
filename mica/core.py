@@ -112,8 +112,8 @@ class Thing:
 
         if thing == 'here':
             l = self.location()
-            if l is not None and type(l) is int:
-                return [self.mica.get_thing(l)]
+            if l is not None and type(l) is Thing:
+                return [l]
             else:
                 return []
 
@@ -249,12 +249,10 @@ class Mica:
         return acct
 
     def get_thing(self, id):
-        """Call up the database and return the name and desc of a Thing (in a tuple), or None if there is none with that id."""
+        """Return a Thing instance for the id `id', or raise a NotEnoughResultsException if it doesn't exist.
+        Technically might be able to raise a TooManyResultsException, but it should never in practice."""
         # Does name lookup itself. Can raise NotEnoughResultsException on inextant id
-        try:
-            return Thing(self, id)
-        except NotEnoughResultsException:
-            return None
+        return Thing(self, id)
 
 
     #
@@ -321,7 +319,8 @@ class Mica:
 
         # Again, TODO: Password hashing
         if acct[0] == args[1]:
-            assert self.get_thing(acct[1]) is not None    # TODO: Is this really necessary? It might be a significant performance drop (more database calls, even more if the object has a lot of objects in it), which could matter since malicious users can try to sign in very frequently, and they don't need to authenticate themselves first (duh.)
+            #assert self.get_thing(acct[1]) is not None    # TODO: Is this really necessary? It might be a significant performance drop (more database calls, even more if the object has a lot of objects in it), which could matter since malicious users can try to sign in very frequently, and they don't need to authenticate themselves first (duh.)
+            # ... It raises NotEnoughResultsException now, so I just commented it out for now.
             self.client_states[link]['character'] = acct[1]
             return True
         else:
