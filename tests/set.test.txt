@@ -1,0 +1,13 @@
+>connect One potrzebie
+>make a thing
+in your inventory
+>set
+That command needs to be written similar to
+>set asefiojl8h3rsa
+That command needs to be written similar to
+>set bluh:bauesflishef=s3948093
+I can't find any such thing as `bluh'.
+>set thing:desc=It's a thing!
+Set desc to It's a thing!
+>look thing
+It's a thing!

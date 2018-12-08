@@ -52,7 +52,7 @@ def implement(m):
         if parse_result is None:
             raise CommandProcessingError(texts['cmdSyntax'] % 'set object=param:value')
 
-        tgt = m.pov_get_thing_by_name(parse_result[1])
+        tgt = m.pov_get_thing_by_name(link, parse_result[1])
         attr = parse_result[2]
         val = parse_result[3]
 
