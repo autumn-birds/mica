@@ -1,6 +1,7 @@
 #!/usr/bin/python3
 
 import logging
+import traceback
 
 
 # Default messages that would otherwise be hard-coded about in the code.
@@ -14,11 +15,13 @@ texts = {
     'cmdSyntax': "That command needs to be written similar to `%s'.",
     'cmdErrWithArgs': "[!!] There was a problem processing your command, but the arguments weren't as expected: %s",
     'cmdErrUnspecified': "[!!] There was a problem processing your command, but no explanation has been provided. Please bother your local developers.",
+    'err': "[!!] %s",
 
     'youAreNowhere': "You... erm... don't seem to actually be in a location that exists.  This is, um, honestly, really embarrassing and we're not sure what to do about it.",
     'descMissing': "You see a strange and unnerving lack of emptiness.",
     'beforeListingContents': "You can see: ",
 }
+
 
 # These are mainly thrown by mica's database accessors.
 class TooManyResultsException(Exception):
@@ -169,6 +172,9 @@ class Mica:
         # TODO: Currently the 'character' key is set to -1 to indicate a connection that has not logged in yet. But really it should be None, since I think it might be theoretically possible for negative database indices to exist somehow.
         self.client_states = {}
 
+        # Set this to True to print tracebacks to the user.
+        self.show_tracebacks = False
+
 
     #
     # Database functions (accessing and updating objects, etc.)
@@ -297,6 +303,13 @@ class Mica:
                         link.write(self.line(texts['cmdErrWithArgs'] % repr(e.args)))
                     else:
                         link.write(self.line(texts['cmdErrUnspecified']))
+                except:
+                    link.write(self.line(texts['cmdErrUnspecified']))
+                    if self.show_tracebacks:
+                        link.write(self.line(texts['err'] % traceback.format_exc(chain=False)))
+                    else:
+                        link.write(self.line(texts['err'] % "Exception not printed"))
+
                 return
 
         link.write(self.line(texts['cmd404']))

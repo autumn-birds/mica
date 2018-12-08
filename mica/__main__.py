@@ -15,7 +15,7 @@ logging.basicConfig(level=logging.WARNING)
 
 # Options parsing, other initialization, and higher-level server logic.
 # TODO: --help
-(opts, args) = getopt.getopt(sys.argv[1:], '', ['host=', 'port=', 'print-io', 'initDB'])
+(opts, args) = getopt.getopt(sys.argv[1:], '', ['host=', 'port=', 'print-io', 'hide-tracebacks', 'initDB'])
 
 _opts = {}
 for pair in opts:
@@ -26,10 +26,12 @@ del _opts
 
 # TODO: Implement manual switch for creating database to file, + loading arbitrary file on start
 db = sqlite3.connect(":memory:")
-
 mica = core.Mica(db)
 mica.setup_db()
+
 commands.implement(mica)
+if "hide-tracebacks" not in opts:
+    mica.show_tracebacks = True
 
 # The horrible, ugly world of networking code.
 # TODO: SSL support?
