@@ -20,6 +20,11 @@ texts = {
     'youAreNowhere': "You... erm... don't seem to actually be in a location that exists.  This is, um, honestly, really embarrassing and we're not sure what to do about it.",
     'descMissing': "You see a strange and unnerving lack of emptiness.",
     'beforeListingContents': "You can see: ",
+    'beforeListingInventory': "You are carrying:",
+    'carryingNothing': "You are not carrying anything.",
+
+    'setAttrToValSuccess': "Set %s to %s.",
+    'madeThing': "Created in your inventory: %s",
 }
 
 
@@ -79,6 +84,10 @@ class Thing:
         except KeyError:
             return default
 
+    def move(self, to_thing):
+        """Move this Thing into another Thing."""
+        self.mica._calldb("UPDATE things SET location_id=? WHERE id=?", (to_thing.id, self.id))
+
     def contents(self):
         """Return a list of Things that are in this Thing."""
         assert type(self.id) is int
@@ -130,8 +139,8 @@ class Thing:
         whereami = self.location()
         if whereami is not None:
             # Consider items you're carrying.
-            candidates = [(x.name, x.id) for x in self.contents()]
-            matches = [x[0] for x in candidates if thing in x[1]]
+            candidates = [(x.id, x.name) for x in self.contents()]
+            matches = [self.mica.get_thing(x[0]) for x in candidates if thing in x[1]]
             return matches
 
     def resolve_one_thing(self, thing):
@@ -255,6 +264,13 @@ class Mica:
         # Does name lookup itself. Can raise NotEnoughResultsException on inextant id
         return Thing(self, id)
 
+    def add_thing(self, owner, name):
+        """Create a new thing in the database, named `name' and owned by the Thing (expected to be a Thing instance) `owner', and return a new Thing instance."""
+        Cx = self._calldb("INSERT INTO things (name, location_id, owner_id) VALUES (?,?,?)", (name, owner.id, owner.id))
+        Cx.execute("SELECT last_insert_rowid()")
+        results = Cx.fetchall()
+        assert len(results) == 1
+        return self.get_thing(results[0][0])
 
     #
     # Logic for connections and how users interact with the system, including logging in and command processing.
@@ -317,7 +333,9 @@ class Mica:
 
                 # We got here without exceptions, so everything is (probably sort of) okay.
                 self.db.commit()
+                return
 
+        # If we get here, it means we ran out of things to try.
         link.write(self.line(texts['cmd404']))
 
     def on_disconnection(self, old_link):
