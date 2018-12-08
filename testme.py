@@ -1,37 +1,58 @@
 import subprocess
-import unittest
 import telnetlib
 import time
+import traceback
+import os
 
 TEST_PORT = 1234
 
-class TestServer(unittest.TestCase):
-    def setUp(self):
-        self.svr = subprocess.Popen(['python3', 'mica', '--port', str(TEST_PORT), '--print-io'])
-        # We apparently have to wait a minute for the server to come up.
-        # Otherwise, there's an error, and it also just hangs around for a bit because I guess the error stops .kill() from ever happening.
-        # It might be ideal to start the server fewer times, but doing it this way does make the tests more like a pure function.
-        time.sleep(0.1)
-        assert self.svr.poll() is None
+def run_test(filename):
+    svr = subprocess.Popen(['python3', 'mica', '--port', str(TEST_PORT), '--print-io'])
+    time.sleep(0.1)
+    assert svr.poll() is None
 
-        self.t = telnetlib.Telnet()
-        self.t.open("localhost", TEST_PORT)
+    t = telnetlib.Telnet()
+    t.open("localhost", TEST_PORT)
 
-    def test_basic(self):
-        # Depend on a [1] object existing, and producing the number 1 somewhere in the output when we write `look #1'.
-        self.t.write(b'connect One potrzebie\n')
-        self.t.write(b'look me\n')
+    try:
+        with open(filename, 'r') as file:
+            for line in file.readlines():
+                line = line.strip()
+                if line[0] == '>':
+                    t.write(line[1:].encode("utf-8") + b'\n')
+                else:
+                    line = line.encode("utf-8")
+                    results = t.read_until(line, 1.0)
+                    if line not in results:
+                        print("test> expected %s, got %s" % (repr(line), repr(results)))
+                        t.close()
+                        svr.kill()
+                        return (False, "%s != %s" % (repr(line), repr(results)))
+    except:
+        print("test> unhandled exception...")
+        t.close()
+        svr.kill()
+        print(traceback.format_exc(chain=True))
+        return False
 
-        results = self.t.expect([b'One \[1\]'], 1.0)
-        self.assertNotEqual(results[1], None)
+    t.close()
+    svr.kill()
+    return (True, None)
 
-        # This should be done after most tests, or the inverse, to make sure the server didn't die (or did if that was expected.)
-        self.assertTrue(self.svr.poll() is None)
+def files(dir):
+    # https://stackoverflow.com/questions/3207219/how-do-i-list-all-files-of-a-directory
+    return [f for f in os.listdir(dir) if os.path.isfile(os.path.join(dir, f))]
 
-    def tearDown(self):
-        self.t.close()
-        del self.t
-        self.svr.kill()
+results = {}
 
-if __name__ == '__main__':
-    unittest.main()
+for file in files("tests"):
+    results[file] = run_test(os.path.join("tests", file))
+    print()
+
+print("FINAL RESULTS:\n--------------")
+for (filename, r) in results.items():
+    (status, msg) = r
+    if status:
+        print("%s> OK" % filename)
+    else:
+        print("%s> NOT OK (%s)" % (filename, msg))
