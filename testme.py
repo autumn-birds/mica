@@ -33,7 +33,7 @@ def run_test(filename):
         t.close()
         svr.kill()
         print(traceback.format_exc(chain=True))
-        return False
+        return (False, "Exception in test framework")
 
     t.close()
     svr.kill()
