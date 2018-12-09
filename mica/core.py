@@ -28,6 +28,8 @@ texts = {
     'madeThing': "Created in your inventory: %s",
     'builtThing': "Created %s with id of %d as a floating object.",
     'openedPath': "Opened path %s leading to %s.",
+
+    'triedToGoAmbiguousWay': "There's more than one way to go `%s'.",
 }
 
 
@@ -148,6 +150,7 @@ class Thing:
         That is, considers objects that are inside this object and objects that are in its current location along with it."""
         thing = thing.strip()
 
+        # TODO: Include this object and its location in the list, so we don't get baffling messages that suggest we don't exist.
         if thing == 'me':
             # TODO: Maybe we should check this too.  Just to be extra pedantic.
             # I don't know if maybe we shouldn't just have a check_id_exists() function or something.
@@ -375,6 +378,22 @@ class Mica:
                 # We got here without exceptions, so everything is (probably sort of) okay.
                 self.db.commit()
                 return
+
+        char = self.get_thing(s)
+        prospective_exits = []
+
+        for option in [x for x in char.location().contents() if x.destination() is not None]:
+            if text in option.name():
+                prospective_exits.append(option)
+
+        if len(prospective_exits) == 1:
+            char.move(prospective_exits[0].destination())
+            self.on_text(link, "look")
+            return
+
+        elif len(prospective_exits) > 1:
+            link.write(texts['triedToGoAmbiguousWay'] % text)
+            return
 
         # If we get here, it means we ran out of things to try.
         link.write(self.line(texts['cmd404']))
