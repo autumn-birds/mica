@@ -97,10 +97,10 @@ class Thing:
     def destination(self):
         """If this Thing is not a passage, this value will be None.
         But if it IS a passage, this value will be the id of another Thing (e.g., the one it is an exit to.)"""
-        try:
-            result = self.mica._one_from_db("SELECT passage_to FROM things WHERE id=?", self.id)[0]
+        result = self.mica._one_from_db("SELECT passage_to FROM things WHERE id=?", (self.id,))[0]
+        if result is not None:
             return self.mica.get_thing(result)
-        except NotEnoughResultsException:
+        else:
             return None
 
     def set_destination(self, new_dest):
@@ -161,7 +161,7 @@ class Thing:
         if thing[0] == '#':
             try:
                 dbref = int(thing[1:])
-            except ValueError():
+            except ValueError:
                 return []
 
             try:
