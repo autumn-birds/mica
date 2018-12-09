@@ -11,6 +11,9 @@ import re
 def implement(m):
     # TODO: Since we're basically grabbing our character object at the beginning of every command so far anyway, we should consider just having the Mica class pass it in to begin with.
     # TODO: Write docstrings for everything, then implement `help'.
+    # TODO: I've been considering the notion of reworking this stuff so we namespace attributes -- things the ordinary users can see called 'usr:attrName' and things the system is using with 'sys:attrName'. Obviously, individuals with superuser power can see the sys: ones too (and I guess have to use prefixes, bluh. Maybe defaults to usr though.)
+    # ...We could also use sys: attributes to decide who is a superuser; I think that would let us move such decisions entirely into command space actually.
+
     @m.command("look")
     @m.command("l")
     def do_look(link, text):
@@ -28,9 +31,22 @@ def implement(m):
 
         link.write(m.line(tgt.display_name()))
         link.write(m.line(tgt.get('desc', texts['descMissing'])))
-        contents = ", ".join([x.display_name() for x in tgt.contents()])
-        if len(contents) > 0:
-            link.write(m.line(texts['beforeListingContents'] + contents))
+
+        contents = tgt.contents()
+
+        objects = []
+        exits = []
+        for x in contents:
+            if x.destination() is None:
+                objects.append(x)
+            else:
+                exits.append(x)
+
+        if len(objects) > 0:
+            link.write(m.line(texts['beforeListingObjects'] + ", ".join([x.display_name() for x in objects])))
+
+        if len(exits) > 0:
+            link.write(m.line(texts['beforeListingExits'] + ", ".join([x.display_name() for x in exits])))
 
     @m.command("make")
     def do_make(link, text):
@@ -52,7 +68,7 @@ def implement(m):
             text = text[2:].strip()
 
         parsed = re.match("^([^=]+)(=[^=]+)?$", text)
-        if parsed is None:
+        if parsed is None or len(parsed[1].strip()) < 2:
             raise CommandProcessingError(texts['cmdSyntax'] % 'build [-t] name of object[=desc of object]')
 
         new_thing = m.add_thing(me, parsed[1])
@@ -67,6 +83,23 @@ def implement(m):
             do_look(link, "")
         else:
             link.write(m.line(texts['builtThing'] % (new_thing.name(), new_thing.id)))
+
+    @m.command("open")
+    def do_open(link, text):
+        me = m.get_thing(m.client_states[link]['character'])
+
+        parsed = re.match("^([^=]+)=([^=]+)$", text)
+        if parsed is None or parsed[1] is None or parsed[2] is None:
+            raise CommandProcessingError(texts['cmdSyntax'] % 'open name of exit=target')
+
+        name = parsed[1].strip()
+        target = m.pov_get_thing_by_name(link, parsed[2].strip())
+
+        new_thing = m.add_thing(me, name)
+        new_thing.move(me.location())
+        new_thing.set_destination(target)
+
+        link.write(m.line(texts['openedPath'] % (new_thing.display_name(), target.display_name())))
 
     @m.command("set")
     def do_set(link, text):

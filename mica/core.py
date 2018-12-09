@@ -19,13 +19,15 @@ texts = {
 
     'youAreNowhere': "You... erm... don't seem to actually be in a location that exists.  This is, um, honestly, really embarrassing and we're not sure what to do about it.",
     'descMissing': "You see a strange and unnerving lack of emptiness.",
-    'beforeListingContents': "You can see: ",
+    'beforeListingObjects': "You can see: ",
+    'beforeListingExits': "Obvious exits: ",
     'beforeListingInventory': "You are carrying:",
     'carryingNothing': "You are not carrying anything.",
 
     'setAttrToValSuccess': "Set %s to %s.",
     'madeThing': "Created in your inventory: %s",
     'builtThing': "Created %s with id of %d as a floating object.",
+    'openedPath': "Opened path %s leading to %s.",
 }
 
 
