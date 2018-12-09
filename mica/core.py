@@ -25,6 +25,7 @@ texts = {
 
     'setAttrToValSuccess': "Set %s to %s.",
     'madeThing': "Created in your inventory: %s",
+    'builtThing': "Created %s with id of %d as a floating object.",
 }
 
 

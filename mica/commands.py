@@ -36,12 +36,37 @@ def implement(m):
     def do_make(link, text):
         me = m.get_thing(m.client_states[link]['character'])
 
-        text = text.strip()
         if len(text) <= 0:
             raise CommandProcessingError(texts['cmdSyntax'] % 'make name of object')
 
         result = m.add_thing(me, text)
         link.write(m.line(texts['madeThing'] % result.display_name()))
+
+    @m.command("build")
+    def do_build(link, text):
+        me = m.get_thing(m.client_states[link]['character'])
+
+        do_tel = False
+        if text[0:2] == '-t':
+            do_tel = True
+            text = text[2:].strip()
+
+        parsed = re.match("^([^=]+)(=[^=]+)?$", text)
+        if parsed is None:
+            raise CommandProcessingError(texts['cmdSyntax'] % 'build [-t] name of object[=desc of object]')
+
+        new_thing = m.add_thing(me, parsed[1])
+        if parsed[2] is not None:
+            # parsed[2] is the =desc... part, and will always start with an =, which we don't want
+            new_thing['desc'] = parsed[2][1:]
+
+        new_thing.move(new_thing)
+
+        if do_tel:
+            me.move(new_thing)
+            do_look(link, "")
+        else:
+            link.write(m.line(texts['builtThing'] % (new_thing.name(), new_thing.id)))
 
     @m.command("set")
     def do_set(link, text):
