@@ -14,7 +14,9 @@ That command needs to be written similar to
 >build Second Room
 Created Second Room with id of
 as a floating
->link north=#3
+>open north=#(9999
+I can't find any such thing
+>open north=#3
 >look
 Obvious exits:
 north
