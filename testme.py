@@ -3,6 +3,7 @@ import telnetlib
 import time
 import traceback
 import os
+import sys
 
 TEST_PORT = 1234
 
@@ -45,8 +46,17 @@ def files(dir):
 
 results = {}
 
-for file in files("tests"):
-    results[file] = run_test(os.path.join("tests", file))
+if len(sys.argv) > 1:
+    to_run = sys.argv[1:]
+else:
+    to_run = [os.path.join("tests", x) for x in files("tests")]
+
+for file in to_run:
+    if os.path.exists(file) and os.path.isfile(file):
+        results[file] = run_test(file)
+    else:
+        print("File not found, or is a directory: %s" % file)
+        results[file] = (False, "file not found")
     print()
 
 print("FINAL RESULTS:\n--------------")
