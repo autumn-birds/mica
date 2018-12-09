@@ -136,10 +136,20 @@ class Thing:
         """Move this Thing into another Thing."""
         self.mica._calldb("UPDATE things SET location_id=? WHERE id=?", (to_thing.id, self.id))
 
+    def controls(self, other_thing):
+        """Return True if this thing owns `other_thing', and False otherwise, taking into account that the superuser (#1) has control over everything."""
+        if self.id == 1:
+            # We are the superuser.
+            return True
+
+        # Normal mortals can only control what they own right now.
+        result = self.mica._one_from_db("SELECT owner_id FROM things WHERE id=?", (other_thing.id,))[0]
+        return result == self.id
+
     def resolve_many_things(self, thing):
         """Returns a list of all the Things that the text string `thing' could possibly match, using the syntax used by commands & players to refer to objects, from the point-of-view of this object.
         That is, considers objects that are inside this object and objects that are in its current location along with it."""
-        thing.strip()
+        thing = thing.strip()
 
         if thing == 'me':
             # TODO: Maybe we should check this too.  Just to be extra pedantic.
