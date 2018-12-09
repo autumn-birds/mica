@@ -92,7 +92,10 @@ class LineBufferingSocketContainer:
 
       except OSError:
          logging.error("Got an OSError in read() call")
-         raise
+         # I think this happens sometimes when the other side resets the connection (`connection reset by peer')
+         # I'm going to assume it's a problem that can just be dealt with by closing the connection and treating it like an EOF.
+         self.socket.close()
+         has_eof = True
 
       except ConnectionResetError:
          has_eof = True
@@ -162,5 +165,6 @@ class LineBufferingSocketContainer:
 
    def handle_disconnect(self):
       """Call this function when the remote end closed the connection to nullify and make false the appropriate variables."""
+      self.socket.close()
       self.socket = None
       self.connected = False
