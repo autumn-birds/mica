@@ -20,7 +20,7 @@ def implement(m):
         me = m.get_thing(m.client_states[link]['character'])
 
         text = text.strip()
-        if text != '':
+        if len(text) > 0:
             # This will raise a CommandProcessingError for us if it can't find anything.
             tgt = m.pov_get_thing_by_name(link, text)
         else:
@@ -64,7 +64,8 @@ def implement(m):
     def do_make(link, text):
         me = m.get_thing(m.client_states[link]['character'])
 
-        if len(text) <= 0:
+        text = text.strip()
+        if len(text) < 1:
             raise CommandProcessingError(texts['cmdSyntax'] % 'make name of object')
 
         result = m.add_thing(me, text)
