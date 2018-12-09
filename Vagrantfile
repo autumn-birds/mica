@@ -16,6 +16,10 @@ Vagrant.configure("2") do |config|
     # Runs once, to install dependencies and system service:
     config.vm.provision "shell", inline: <<-SHELL
         apt-get update
-        apt-get install -y git python3 tf5 tmux
+        apt-get install -y git python3 tf5 tmux sloccount sqlite3
     SHELL
+    # (A note on dependencies: We install `sqlite3' by hand not just because it's a useful
+    # thing to have around for development but because installing it updates the sqlite3
+    # library; the version included by default actually doesn't have support for the
+    # 'ON CONFLICT ...' clause we use.)
 end
