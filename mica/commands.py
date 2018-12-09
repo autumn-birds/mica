@@ -48,6 +48,32 @@ def implement(m):
         if len(exits) > 0:
             link.write(m.line(texts['beforeListingExits'] + ", ".join([x.display_name() for x in exits])))
 
+    @m.command("say")
+    @m.prefix_command('"')
+    def do_say(link, text):
+        me = m.get_thing(m.client_states[link]['character'])
+
+        text = text.strip()
+        if len(text) < 1:
+            raise CommandProcessingError(texts['cmdSyntax'] % 'say hello || "hello')
+
+        where = me.location()
+        if where is not None:
+            where.dispatch_message(texts['characterSays'] % (me.name(), text))
+
+    @m.command("pose")
+    @m.prefix_command(":")
+    def do_say(link, text):
+        me = m.get_thing(m.client_states[link]['character'])
+
+        text = text.strip()
+        if len(text) < 1:
+            raise CommandProcessingError(texts['cmdSyntax'] % 'pose laughs. || :laughs.')
+
+        where = me.location()
+        if where is not None:
+            where.dispatch_message(texts['characterPoses'] % (me.name(), text))
+
     @m.command("jump")
     def do_jump(link, text):
         me = m.get_thing(m.client_states[link]['character'])

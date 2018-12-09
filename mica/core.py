@@ -30,6 +30,12 @@ texts = {
     'openedPath': "Opened path %s leading to %s.",
 
     'triedToGoAmbiguousWay': "There's more than one way to go `%s'.",
+
+    'characterConnected': "[##] %s has connected.",
+    'characterArrivesThruPassage': "[##] %s emerges, having entered %s elsewhere.",
+    'characterDepartsByPassage': "[##] %s exits through the passage %s.",
+    'characterSays': "%s says, \"%s\"",
+    'characterPoses': "%s %s",
 }
 
 
@@ -198,6 +204,17 @@ class Thing:
         """Returns the Thing's name (string) as it should be displayed to users; e.g., with the database number included, for example."""
         return "%s [%d]" % (self.name(), self.id)
 
+    def dispatch_message(self, msg):
+        """Dispatch a message `msg' to self (if connected) and to all the Things with self as their location."""
+        assert type(msg) is str
+        msg = msg.strip()
+        if len(msg) < 1:
+            raise ValueError("msg should be a str with some non-whitespace content")
+
+        for thing in self.contents() + [self]:
+            if thing.id in self.mica.connected_things:
+                self.mica.connected_things[thing.id].write(self.mica.line(msg))
+
 
 class Mica:
     def __init__(self, db):
@@ -209,6 +226,9 @@ class Mica:
         # It is a list and not a dict because it might need to be ordered, although if that is the case the ordering should probably be enforced internally rather than depending on callers to register their commands in a problem-free order.
         # The elements in the list are (command_name:str, command:function) tuples.
         self._commands = []
+
+        # Some commands have a short alias that triggers them when directly prefixed with their arguments, like a single quote for say or a colon for pose; we deal with that by registering them in this list, which is in the same format as _commands but should typically be much shorter.
+        self._prefix_commands = []
 
         # The client_states variable is indexed by 'link' objects, provided by network code, and it keeps track of state for each connection, such as what object it's logged into for a character or whether it's logged in at all.
         # Since in the future there might be more state that's needed, e.g. to implement the required functionality for editor- or puppet-driving-type systems, or since some commands might want to store state, the values in this dictionary are also dictionaries; the character object the command is connected to is stored under the 'character' key in each dictionary. 
@@ -227,7 +247,6 @@ class Mica:
 
         # This message will be shown to users when they log in, if it is not None.
         self.motd = None
-
 
     #
     # Database functions (accessing and updating objects, etc.)
@@ -352,47 +371,31 @@ class Mica:
                 link.write(self.line(texts['cmd404']))
             return
 
+        for cmd in self._prefix_commands:
+            if cmd[0] == text[:len(cmd[0])]:
+                return self.call_command(link, cmd[1], text[len(cmd[0]):])
+
         for cmd in self._commands:
             if cmd[0] + ' ' == text[:len(cmd[0])+1] or cmd[0].strip() == text.strip():
-                try:
-                    cmd[1](link, text[len(cmd[0])+1:])
-                except CommandProcessingError as e:
-                    if len(e.args) == 1:
-                        link.write(self.line(e.args[0]))
-                    elif len(e.args) > 1:
-                        link.write(self.line(texts['cmdErrWithArgs'] % repr(e.args)))
-                    else:
-                        link.write(self.line(texts['cmdErrUnspecified']))
-
-                    self.db.rollback()
-                    return
-                except:
-                    tx = traceback.format_exc(chain=False)
-                    logging.error('While processing command: %s' % text)
-                    logging.error(tx)
-
-                    link.write(self.line(texts['cmdErrUnspecified']))
-                    if self.show_tracebacks:
-                        link.write(self.line(texts['err'] % tx))
-                    else:
-                        link.write(self.line(texts['err'] % "Exception not printed"))
-
-                    self.db.rollback()
-                    return
-
-                # We got here without exceptions, so everything is (probably sort of) okay.
-                self.db.commit()
-                return
+                return self.call_command(link, cmd[1], text[len(cmd[0])+1:])
 
         char = self.get_thing(s)
         prospective_exits = []
+
+        if char.location() is None:
+            return
 
         for option in [x for x in char.location().contents() if x.destination() is not None]:
             if text in option.name():
                 prospective_exits.append(option)
 
         if len(prospective_exits) == 1:
+            char.location().dispatch_message(texts['characterDepartsByPassage'] % (char.display_name(), prospective_exits[0].display_name()))
+
             char.move(prospective_exits[0].destination())
+
+            char.location().dispatch_message(texts['characterArrivesThruPassage'] % (char.display_name(), prospective_exits[0].display_name()))
+            # TODO: Should we avoid hard-coding this? (e.g., mechanism similar to on-connect commands)
             self.on_text(link, "look")
             return
 
@@ -402,6 +405,40 @@ class Mica:
 
         # If we get here, it means we ran out of things to try.
         link.write(self.line(texts['cmd404']))
+
+    def call_command(self, link, cmd, text):
+        """Call the function `cmd' as a command with text argument `text' in the context of being given by link object `link', handling errors as appropriate.
+        This function is used internally by on_text().
+        After the command function has been executed, it calls commit() on the database if there were no exceptions and rollback() on the database if there were."""
+        try:
+            cmd(link, text)
+        except CommandProcessingError as e:
+            if len(e.args) == 1:
+                link.write(self.line(e.args[0]))
+            elif len(e.args) > 1:
+                link.write(self.line(texts['cmdErrWithArgs'] % repr(e.args)))
+            else:
+                link.write(self.line(texts['cmdErrUnspecified']))
+
+            self.db.rollback()
+            return
+        except:
+            tx = traceback.format_exc(chain=False)
+            logging.error('While processing command: %s' % text)
+            logging.error(tx)
+
+            link.write(self.line(texts['cmdErrUnspecified']))
+            if self.show_tracebacks:
+                link.write(self.line(texts['err'] % tx))
+            else:
+                link.write(self.line(texts['err'] % "Exception not printed"))
+
+            self.db.rollback()
+            return
+
+        # We got here without exceptions, so everything is (probably sort of) okay.
+        self.db.commit()
+        return
 
     def on_disconnection(self, old_link):
         """Called by network code when a connection dies.
@@ -443,6 +480,11 @@ class Mica:
             for cmd in self.login_commands:
                 self.on_text(link, cmd)
 
+            char = self.get_thing(acct[1])
+            where = char.location()
+            if where is not None:
+                where.dispatch_message(texts['characterConnected'] % char.display_name())
+
             return True
         else:
             # Login fails.
@@ -459,6 +501,13 @@ class Mica:
         def add_this_command(fn):
             self._commands.append((name, fn))
             return fn # We just want the side effects.
+        return add_this_command
+
+    def prefix_command(self, prefix):
+        """Like command(), but for flat prefixes like the single-quote for calling `say'."""
+        def add_this_command(fn):
+            self._prefix_commands.append((prefix, fn))
+            return fn
         return add_this_command
 
     def pov_get_thing_by_name(self, link, thing):
