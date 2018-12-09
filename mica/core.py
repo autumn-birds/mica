@@ -215,6 +215,10 @@ class Mica:
         # TODO: Currently the 'character' key is set to -1 to indicate a connection that has not logged in yet. But really it should be None, since I think it might be theoretically possible for negative database indices to exist somehow.
         self.client_states = {}
 
+        # We need to know who is connected to what objects at any given time, and so we keep track of them by mapping objectid-to-link as well as link-to-state; this is sort of the inverse of client_states.
+        # You can go from a connected character to a state by doing client_states[connected_things[char_obj]].
+        self.connected_things = {}
+
         # Set this to True to print tracebacks to the user.
         self.show_tracebacks = False
 
@@ -289,6 +293,7 @@ class Mica:
 
     def get_account(self, account):
         """Return a tuple of (password, objectID) for the given account name, if it exists and is not ambiguous; otherwise, return None."""
+        # TODO: See if we can use some kind of join to do this in a single call.
         assert type(account) is str
         try:
             thingid = self._one_from_db("SELECT id FROM things WHERE name=? AND id IN (SELECT character_id FROM accounts)", (account,))
@@ -403,6 +408,13 @@ class Mica:
         The result of re-using an old link object again once it has been passed to this function is undefined."""
         assert old_link in self.client_states
         del self.client_states[old_link]
+
+        # Get rid of any expired entries in the connected_things index.
+        # Doing this is probably more expensive than just checking to see we delete the character associated with the link that just died, but is less fragile.
+        for k, v in self.connected_things.items():
+            if k not in self.client_states:
+                del self.connected_things[k]
+
         logging.info("Losing link " + repr(old_link))
 
     def _try_login(self, link, args):
@@ -412,19 +424,28 @@ class Mica:
         if len(args) != 2:
             link.write(self.line(texts['cmdSyntax'] % "connect <username> <password>"))
             return
+
         acct = self.get_account(args[0])
+        if acct is None:
+            link.write(self.line(texts['badLogin']))
+            return False
 
         # Again, TODO: Password hashing
         if acct[0] == args[1]:
             #assert self.get_thing(acct[1]) is not None    # TODO: Is this really necessary? It might be a significant performance drop (more database calls, even more if the object has a lot of objects in it), which could matter since malicious users can try to sign in very frequently, and they don't need to authenticate themselves first (duh.)
             # ... It raises NotEnoughResultsException now, so I just commented it out for now.
+            # Login succeeds...
             self.client_states[link]['character'] = acct[1]
+            self.connected_things[acct[1]] = link
+
             if self.motd is not None:
                 link.write(self.line(self.motd))
             for cmd in self.login_commands:
                 self.on_text(link, cmd)
+
             return True
         else:
+            # Login fails.
             link.write(self.line(texts['badLogin']))
             return False
 
