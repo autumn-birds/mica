@@ -1,0 +1,20 @@
+>connect One potrzebie
+>open
+That command needs to be written similar to
+>open =
+That command needs to be written similar to
+>open s
+That command needs to be written similar to
+>open s=
+That command needs to be written similar to
+>open =s
+That command needs to be written similar to
+>open =se39287943=34234835=35=23
+That command needs to be written similar to
+>build Second Room
+Created Second Room with id of
+as a floating
+>link north=#3
+>look
+Obvious exits:
+north

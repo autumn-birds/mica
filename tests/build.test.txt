@@ -1,0 +1,15 @@
+>connect One potrzebie
+>build
+That command needs to be written similar to
+>build =junk
+That command needs to be written similar to
+>build thing
+Created thing with id of
+as a floating object.
+>build other thing=with description
+Created other thing with id of
+as a floating object.
+>build -t room=A nondescript room.
+room [
+]
+A nondescript room.
