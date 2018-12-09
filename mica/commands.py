@@ -48,6 +48,18 @@ def implement(m):
         if len(exits) > 0:
             link.write(m.line(texts['beforeListingExits'] + ", ".join([x.display_name() for x in exits])))
 
+    @m.command("jump")
+    def do_jump(link, text):
+        me = m.get_thing(m.client_states[link]['character'])
+
+        text = text.strip()
+        if len(text) < 1:
+            raise CommandProcessingError(texts['cmdSyntax'] % 'jump #400')
+
+        dest = m.pov_get_thing_by_name(link, text)
+        me.move(dest)
+        m.on_text(link, "look")
+
     @m.command("make")
     def do_make(link, text):
         me = m.get_thing(m.client_states[link]['character'])
