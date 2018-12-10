@@ -230,6 +230,8 @@ class Mica:
         # Some commands have a short alias that triggers them when directly prefixed with their arguments, like a single quote for say or a colon for pose; we deal with that by registering them in this list, which is in the same format as _commands but should typically be much shorter.
         self._prefix_commands = []
 
+        # TODO: Consider trying to replace most or all of the places we are storing object-ids as bare ints, with Thing instances instead.
+
         # The client_states variable is indexed by 'link' objects, provided by network code, and it keeps track of state for each connection, such as what object it's logged into for a character or whether it's logged in at all.
         # Since in the future there might be more state that's needed, e.g. to implement the required functionality for editor- or puppet-driving-type systems, or since some commands might want to store state, the values in this dictionary are also dictionaries; the character object the command is connected to is stored under the 'character' key in each dictionary. 
         # TODO: Currently the 'character' key is set to -1 to indicate a connection that has not logged in yet. But really it should be None, since I think it might be theoretically possible for negative database indices to exist somehow.
