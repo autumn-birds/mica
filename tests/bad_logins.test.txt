@@ -1,0 +1,10 @@
+>connect One imajerk
+I'm sorry, but those credentials were not right.
+>connect ioje efjisaoenalcoisn
+I'm sorry, but those credentials were not right.
+>connect      .,  \
+That command needs to be written similar to `
+>connect ; DROP TABLE accounts;
+That command needs to be written similar to `
+>connect 
+That command needs to be written similar to `

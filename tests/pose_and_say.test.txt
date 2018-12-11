@@ -1,0 +1,19 @@
+>connect One potrzebie
+>say hi
+One says
+"hi"
+>"hi
+One says
+"hi"
+>pose smiles.
+One smiles.
+>:smiles.
+One smiles.
+>:
+That command needs to be written similar to `
+>pose  
+That command needs to be written similar to `
+>say    
+That command needs to be written similar to `
+>"  
+That command needs to be written similar to `
