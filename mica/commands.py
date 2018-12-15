@@ -147,7 +147,7 @@ def implement(m):
         text = text.strip()
         parse_result = re.match("^([^:]+):([^=:]+)=(.*)$", text)
         if parse_result is None:
-            raise CommandProcessingError(texts['cmdSyntax'] % 'set object=param:value')
+            raise CommandProcessingError(texts['cmdSyntax'] % 'set object:param=value')
 
         tgt = m.pov_get_thing_by_name(link, parse_result[1])
         attr = parse_result[2]
