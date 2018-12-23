@@ -376,6 +376,7 @@ class Mica:
         assert link in self.client_states
         s = self.client_states[link]['character']
 
+        # If s is -1 (TODO: None), the user hasn't logged in yet. So we deal with that.
         if s == -1:
             cmd = "connect"
             if text[:len(cmd)] == cmd:
@@ -384,6 +385,7 @@ class Mica:
                 link.write(self.line(texts['cmd404']))
             return
 
+        # If we get here, the user is logged in. So, we check if what they wrote matches a command, and call the appropriate command if so.
         for cmd in self._prefix_commands:
             if cmd[0] == text[:len(cmd[0])]:
                 return self.call_command(link, cmd[1], text[len(cmd[0]):])
@@ -392,10 +394,12 @@ class Mica:
             if cmd[0] + ' ' == text[:len(cmd[0])+1] or cmd[0].strip() == text.strip():
                 return self.call_command(link, cmd[1], text[len(cmd[0])+1:])
 
+        # At this point, we haven't been able to match any command, so we consider whether there could be an exit they are trying to move through, and move them through it if it exists and is not ambiguous.
         char = self.get_thing(s)
         prospective_exits = []
 
         if char.location() is None:
+            link.write(self.line(texts['cmd404']))
             return
 
         for option in [x for x in char.location().contents() if x.destination() is not None]:
@@ -461,9 +465,7 @@ class Mica:
 
         # Get rid of any expired entries in the connected_things index.
         # Doing this is probably more expensive than just checking to see we delete the character associated with the link that just died, but is less fragile.
-        for k, v in self.connected_things.items():
-            if k not in self.client_states:
-                del self.connected_things[k]
+        self.connected_things = {k: v for k, v in self.connected_things if v in self.client_states}
 
         logging.info("Losing link " + repr(old_link))
 
