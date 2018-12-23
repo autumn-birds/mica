@@ -16,6 +16,7 @@ texts = {
     'cmdErrWithArgs': "[!!] There was a problem processing your command, but the arguments weren't as expected: %s",
     'cmdErrUnspecified': "[!!] There was a problem processing your command, but no explanation has been provided. Please bother your local developers.",
     'err': "[!!] %s",
+    'noPermission': "[!!] You don't have permission to do that.",
 
     'youAreNowhere': "You... erm... don't seem to actually be in a location that exists.  This is, um, honestly, really embarrassing and we're not sure what to do about it.",
     'descMissing': "You see a strange and unnerving lack of emptiness.",
@@ -94,6 +95,10 @@ class Thing:
             return self[key]
         except KeyError:
             return default
+    
+    def items(self):
+        """Build and return a list of (key, value) pairs representing this object's parameters."""
+        return self.mica._from_db("SELECT name, val FROM properties WHERE object_id=?", (self.id,))
 
     def name(self):
         """Return the Thing's name."""
@@ -151,6 +156,11 @@ class Thing:
         result = self.mica._one_from_db("SELECT owner_id FROM things WHERE id=?", (other_thing.id,))[0]
         return result == self.id
 
+    def owner(self):
+        """Return the Thing that owns this Thing, or raise NotEnoughResultsException if there isn't any such Thing to be found."""
+        owner = self.mica._one_from_db("SELECT owner_id FROM things WHERE id=?", (self.id,))[0]
+        return self.mica.get_thing(owner)
+
     def resolve_many_things(self, thing):
         """Returns a list of all the Things that the text string `thing' could possibly match, using the syntax used by commands & players to refer to objects, from the point-of-view of this object.
         That is, considers objects that are inside this object and objects that are in its current location along with it."""
@@ -204,7 +214,7 @@ class Thing:
         """Returns the Thing's name (string) as it should be displayed to users; e.g., with the database number included, for example."""
         return "%s [%d]" % (self.name(), self.id)
 
-    def dispatch_message(self, msg):
+    def tell(self, msg):
         """Dispatch a message `msg' to self (if connected) and to all the Things with self as their location."""
         assert type(msg) is str
         msg = msg.strip()
@@ -351,6 +361,7 @@ class Mica:
     # 3. They will support a kill() method that forcefully disconnects the client on the other end of the link. The network code should [I hope] be able to take care of calling on_disconnection() itself in that case.
     def line(self, text):
         """Encapsulates the process of adding a proper newline to the end of lines, just in case it ever needs to be changed."""
+        # TODO: Get rid of this method and require the write() method to know how to encapsulate lines itself.
         return text + "\r\n"
 
     def on_connection(self, new_link):
@@ -392,11 +403,11 @@ class Mica:
                 prospective_exits.append(option)
 
         if len(prospective_exits) == 1:
-            char.location().dispatch_message(texts['characterDepartsByPassage'] % (char.display_name(), prospective_exits[0].display_name()))
+            char.location().tell(texts['characterDepartsByPassage'] % (char.display_name(), prospective_exits[0].display_name()))
 
             char.move(prospective_exits[0].destination())
 
-            char.location().dispatch_message(texts['characterArrivesThruPassage'] % (char.display_name(), prospective_exits[0].display_name()))
+            char.location().tell(texts['characterArrivesThruPassage'] % (char.display_name(), prospective_exits[0].display_name()))
             # TODO: Should we avoid hard-coding this? (e.g., mechanism similar to on-connect commands)
             self.on_text(link, "look")
             return
@@ -485,7 +496,7 @@ class Mica:
             char = self.get_thing(acct[1])
             where = char.location()
             if where is not None:
-                where.dispatch_message(texts['characterConnected'] % char.display_name())
+                where.tell(texts['characterConnected'] % char.display_name())
 
             return True
         else:

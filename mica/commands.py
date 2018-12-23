@@ -1,23 +1,64 @@
 # Command definitions.
 # Watch out, order may be important -- if one command's full name is the beginning of another command's name, make sure the longer command gets declared first.
 
-# TODO: Factor the messages out into their own file so we don't need this.
-# (TODO: Or make m.texts an alias to core.texts...which makes more sense and less sense at the same time...)
+# TODO: Factor the messages out into their own file.
 from core import texts
 from core import CommandProcessingError
+from core import NotEnoughResultsException
 import logging
 import re
 
 def implement(m):
     # TODO: Since we're basically grabbing our character object at the beginning of every command so far anyway, we should consider just having the Mica class pass it in to begin with.
-    # TODO: Write docstrings for everything, then implement `help'.
-    # TODO: I've been considering the notion of reworking this stuff so we namespace attributes -- things the ordinary users can see called 'usr:attrName' and things the system is using with 'sys:attrName'. Obviously, individuals with superuser power can see the sys: ones too (and I guess have to use prefixes, bluh. Maybe defaults to usr though.)
-    # ...We could also use sys: attributes to decide who is a superuser; I think that would let us move such decisions entirely into command space actually.
+    # (Maybe call like cmd(link, text, character, state) ?)
 
+    # TODO: Write docstrings for everything, then implement `help'.
+
+    #
+    # Convenience functions...
+    def get_int(obj, key):
+        try:
+            return int(obj[key])
+        except ValueError:
+            raise CommandProcessingError("Couldn't convert parameter %s of object %d to int" % (key, obj.id))
+        except KeyError:
+            return None
+
+    def set_int(obj, key, val):
+        assert type(val) is int
+        obj[key] = repr(val)
+
+
+    #
+    # Permissions
+    # I'm not sure if this is the best way to do it.
+    PERMISSION_GUEST = 10
+    PERMISSION_BUILDER = 20
+    PERMISSION_WIZARD = 30
+
+    def get_permission(char):
+        if char.id == 1:
+            return PERMISSION_WIZARD
+
+        l = char.get('privilege_level', -1)
+        if l is -1:
+            l = PERMISSION_GUEST
+            char['privilege_level'] = l
+
+        return l
+
+    def check_permission(char, level):
+        if get_permission(char) < level:
+            raise CommandProcessingError(texts['noPermission'])
+
+
+    #
+    # Basic interaction commands.
     @m.command("look")
     @m.command("l")
     def do_look(link, text):
         me = m.get_thing(m.client_states[link]['character'])
+        check_permission(me, PERMISSION_GUEST)
 
         text = text.strip()
         if len(text) > 0:
@@ -52,6 +93,7 @@ def implement(m):
     @m.prefix_command('"')
     def do_say(link, text):
         me = m.get_thing(m.client_states[link]['character'])
+        check_permission(me, PERMISSION_GUEST)
 
         text = text.strip()
         if len(text) < 1:
@@ -59,12 +101,13 @@ def implement(m):
 
         where = me.location()
         if where is not None:
-            where.dispatch_message(texts['characterSays'] % (me.name(), text))
+            where.tell(texts['characterSays'] % (me.name(), text))
 
     @m.command("pose")
     @m.prefix_command(":")
     def do_say(link, text):
         me = m.get_thing(m.client_states[link]['character'])
+        check_permission(me, PERMISSION_GUEST)
 
         text = text.strip()
         if len(text) < 1:
@@ -72,11 +115,30 @@ def implement(m):
 
         where = me.location()
         if where is not None:
-            where.dispatch_message(texts['characterPoses'] % (me.name(), text))
+            where.tell(texts['characterPoses'] % (me.name(), text))
 
+    @m.command("inventory")
+    @m.command("i")
+    def do_inventory(link, text):
+        me = m.get_thing(m.client_states[link]['character'])
+        check_permission(me, PERMISSION_GUEST)
+
+        things = me.contents()
+        if len(things) > 0:
+            link.write(m.line(texts['beforeListingInventory']))
+            for thing in things:
+                link.write(m.line(thing.display_name()))
+        else:
+            link.write(m.line(texts['carryingNothing']))
+
+
+
+    #
+    # Building-related commands.
     @m.command("jump")
     def do_jump(link, text):
         me = m.get_thing(m.client_states[link]['character'])
+        check_permission(me, PERMISSION_BUILDER)
 
         text = text.strip()
         if len(text) < 1:
@@ -89,6 +151,7 @@ def implement(m):
     @m.command("make")
     def do_make(link, text):
         me = m.get_thing(m.client_states[link]['character'])
+        check_permission(me, PERMISSION_BUILDER)
 
         text = text.strip()
         if len(text) < 1:
@@ -100,6 +163,7 @@ def implement(m):
     @m.command("build")
     def do_build(link, text):
         me = m.get_thing(m.client_states[link]['character'])
+        check_permission(me, PERMISSION_BUILDER)
 
         do_tel = False
         if text[0:2] == '-t':
@@ -126,6 +190,7 @@ def implement(m):
     @m.command("open")
     def do_open(link, text):
         me = m.get_thing(m.client_states[link]['character'])
+        check_permission(me, PERMISSION_BUILDER)
 
         parsed = re.match("^([^=]+)=([^=]+)$", text)
         if parsed is None or parsed[1] is None or parsed[2] is None:
@@ -140,9 +205,13 @@ def implement(m):
 
         link.write(m.line(texts['openedPath'] % (new_thing.display_name(), target.display_name())))
 
+
+    #
+    # Administration / superuser commands
     @m.command("set")
     def do_set(link, text):
         me = m.get_thing(m.client_states[link]['character'])
+        check_permission(me, PERMISSION_WIZARD)
 
         text = text.strip()
         parse_result = re.match("^([^:]+):([^=:]+)=(.*)$", text)
@@ -156,19 +225,27 @@ def implement(m):
         tgt[attr] = val
         link.write(m.line(texts['setAttrToValSuccess'] % (attr, val)))
 
-    @m.command("inventory")
-    @m.command("i")
-    def do_inventory(link, text):
+    @m.command("examine")
+    @m.command("ex")
+    def do_exam(link, text):
         me = m.get_thing(m.client_states[link]['character'])
+        check_permission(me, PERMISSION_WIZARD)
 
-        things = me.contents()
-        if len(things) > 0:
-            link.write(m.line(texts['beforeListingInventory']))
-            for thing in things:
-                link.write(m.line(thing.display_name()))
-        else:
-            link.write(m.line(texts['carryingNothing']))
+        # TODO: Move these messages to where the others are.
+        tgt = m.pov_get_thing_by_name(link, text.strip())
+        link.write(m.line("[==] " + tgt.display_name()))
 
+        try:
+            link.write(m.line("Owner: %s" % (tgt.owner().display_name())))
+        except NotEnoughResultsException:
+            link.write(m.line("[!!] Object has no owner."))
+
+        for k, v in tgt.items():
+            link.write("%s => %s" % (k, repr(v)))
+
+
+    #
+    # Debugging commands.
     @m.command("crash")
     def do_badly(link, text):
         raise Exception("This isn't a good thing.")
