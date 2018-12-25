@@ -95,7 +95,7 @@ class Thing:
             return self[key]
         except KeyError:
             return default
-    
+
     def items(self):
         """Build and return a list of (key, value) pairs representing this object's parameters."""
         return self.mica._from_db("SELECT name, val FROM properties WHERE object_id=?", (self.id,))
@@ -136,6 +136,10 @@ class Thing:
         print("get_location: %d is in %d" % (self.id, results[0]))
         return self.mica.get_thing(results[0])
 
+    def move(self, to_thing):
+        """Move this Thing into another Thing."""
+        self.mica._calldb("UPDATE things SET location_id=? WHERE id=?", (to_thing.id, self.id))
+
     def contents(self):
         """Return a list of Things that are in this Thing."""
         assert type(self.id) is int
@@ -147,19 +151,22 @@ class Thing:
                 contents.append(self.mica.get_thing(content[0]))
         return contents
 
-    def move(self, to_thing):
-        """Move this Thing into another Thing."""
-        self.mica._calldb("UPDATE things SET location_id=? WHERE id=?", (to_thing.id, self.id))
-
     def owns_thing(self, other_thing):
         """Return True if this thing owns `other_thing', and False otherwise."""
         result = self.mica._one_from_db("SELECT owner_id FROM things WHERE id=?", (other_thing.id,))[0]
         return result == self.id
 
     def owner(self):
-        """Return the Thing that owns this Thing, or raise NotEnoughResultsException if there isn't any such Thing to be found."""
-        owner = self.mica._one_from_db("SELECT owner_id FROM things WHERE id=?", (self.id,))[0]
-        return self.mica.get_thing(owner)
+        """Return the Thing that owns this Thing, or None if there isn't any such Thing to be found."""
+        try:
+            owner = self.mica._one_from_db("SELECT owner_id FROM things WHERE id=?", (self.id,))[0]
+            return self.mica.get_thing(owner)
+        except NotEnoughResultsException:
+            return None
+
+    def set_owner(self, other):
+        """Change the owner of this Thing to the Thing `other'."""
+        self.mica._calldb("UPDATE things SET owner_id=? WHERE id=?", (other.id, self.id))
 
     def resolve_many_things(self, thing):
         """Returns a list of all the Things that the text string `thing' could possibly match, using the syntax used by commands & players to refer to objects, from the point-of-view of this object.
