@@ -19,7 +19,7 @@ class bcolors:
     UNDERLINE = '\033[4m'
 
 def run_test(filename):
-    svr = subprocess.Popen(['python3', 'mica', '--port', str(TEST_PORT), '--print-io'])
+    svr = subprocess.Popen(['python3', 'mica', '--port', str(TEST_PORT), '--print-io', ':memory:'])
     time.sleep(0.2)
     assert svr.poll() is None
 
