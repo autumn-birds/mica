@@ -233,15 +233,15 @@ def implement(m):
 
         # TODO: Move these messages to where the others are.
         tgt = m.pov_get_thing_by_name(link, text.strip())
-        link.write(m.line("[==] " + tgt.display_name()))
+        link.write(m.line(texts['examiningThing'] + tgt.display_name()))
 
-        try:
-            link.write(m.line("Owner: %s" % (tgt.owner().display_name())))
-        except NotEnoughResultsException:
-            link.write(m.line("[!!] Object has no owner."))
+        if tgt.owner() is not None:
+            link.write(m.line(texts['thingOwner'] % (tgt.owner().display_name())))
+        else:
+            link.write(m.line(texts['thingHasNoOwner']))
 
         for k, v in tgt.items():
-            link.write("%s => %s" % (k, repr(v)))
+            link.write(texts['thingParameterValue'] % (k, repr(v)))
 
 
     #

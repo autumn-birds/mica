@@ -5,6 +5,7 @@ import traceback
 
 
 # Default messages that would otherwise be hard-coded about in the code.
+# TODO: Factor into a separate file.
 texts = {
     'welcome': "Welcome.  Type `connect <name> <password>' to connect.",
 
@@ -29,6 +30,11 @@ texts = {
     'madeThing': "Created in your inventory: %s",
     'builtThing': "Created %s with id of %d as a floating object.",
     'openedPath': "Opened path %s leading to %s.",
+
+    'examiningThing': "[== Examining: %s]",
+    'thingHasNoOwner': "[!!] %s has no owner.",
+    'thingOwner': "[##] Owner: %s",
+    'thingParameterValue': "[##] %s=%s",
 
     'triedToGoAmbiguousWay': "There's more than one way to go `%s'.",
 
