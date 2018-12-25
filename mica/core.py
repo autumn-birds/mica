@@ -173,7 +173,6 @@ class Thing:
         That is, considers objects that are inside this object and objects that are in its current location along with it."""
         thing = thing.strip()
 
-        # TODO: Include this object and its location in the list, so we don't get baffling messages that suggest we don't exist.
         if thing == 'me':
             # TODO: Maybe we should check this too.  Just to be extra pedantic.
             # I don't know if maybe we shouldn't just have a check_id_exists() function or something.
@@ -200,8 +199,12 @@ class Thing:
         whereami = self.location()
         if whereami is not None:
             # Consider items you're carrying.
-            candidates = [(x.id, x.name()) for x in self.contents()]
-            matches = [self.mica.get_thing(x[0]) for x in candidates if thing in x[1]]
+            candidates = self.contents() + [self]
+            l = self.location()
+            if l is not None:
+                candidates += [l]
+
+            matches = [x for x in candidates if thing in x.name()]
             return matches
 
     def resolve_one_thing(self, thing):
