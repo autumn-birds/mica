@@ -172,7 +172,7 @@ class Thing:
         """Returns a list of all the Things that the text string `thing' could possibly match, using the syntax used by commands & players to refer to objects, from the point-of-view of this object.
         That is, considers objects that are inside this object and objects that are in its current location along with it."""
         thing = thing.strip()
-
+    
         if thing == 'me':
             # TODO: Maybe we should check this too.  Just to be extra pedantic.
             # I don't know if maybe we shouldn't just have a check_id_exists() function or something.
@@ -475,7 +475,7 @@ class Mica:
 
         # Get rid of any expired entries in the connected_things index.
         # Doing this is probably more expensive than just checking to see we delete the character associated with the link that just died, but is less fragile.
-        self.connected_things = {k: v for k, v in self.connected_things if v in self.client_states}
+        self.connected_things = {k: v for k, v in self.connected_things.items() if v in self.client_states}
 
         logging.info("Losing link " + repr(old_link))
 
