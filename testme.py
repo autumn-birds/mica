@@ -7,9 +7,20 @@ import sys
 
 TEST_PORT = 1234
 
+# (https://stackoverflow.com/questions/287871/print-in-terminal-with-colors)
+class bcolors:
+    HEADER = '\033[95m'
+    OKBLUE = '\033[94m'
+    OKGREEN = '\033[92m'
+    WARNING = '\033[93m'
+    FAIL = '\033[91m'
+    ENDC = '\033[0m'
+    BOLD = '\033[1m'
+    UNDERLINE = '\033[4m'
+
 def run_test(filename):
     svr = subprocess.Popen(['python3', 'mica', '--port', str(TEST_PORT), '--print-io'])
-    time.sleep(0.1)
+    time.sleep(0.2)
     assert svr.poll() is None
 
     t = telnetlib.Telnet()
@@ -28,6 +39,7 @@ def run_test(filename):
                         print("test> expected %s, got %s" % (repr(line), repr(results)))
                         t.close()
                         svr.kill()
+                        time.sleep(0.1)
                         return (False, "%s != %s" % (repr(line), repr(results)))
     except:
         print("test> unhandled exception...")
@@ -38,6 +50,7 @@ def run_test(filename):
 
     t.close()
     svr.kill()
+    time.sleep(0.1)
     return (True, None)
 
 def files(dir):
@@ -63,6 +76,6 @@ print("FINAL RESULTS:\n--------------")
 for (filename, r) in results.items():
     (status, msg) = r
     if status:
-        print("%s> OK" % filename)
+        print(("%s> " + bcolors.OKGREEN + "OK" + bcolors.ENDC) % filename)
     else:
-        print("%s> NOT OK (%s)" % (filename, msg))
+        print(("%s> " + bcolors.FAIL + "NOT OK" + bcolors.ENDC + " (%s)") % (filename, msg))
