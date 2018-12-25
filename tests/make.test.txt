@@ -7,3 +7,7 @@ Created in your inventory: a thing
 a thing [
 >look a thing
 You see a strange and unnerving lack of emptiness.
+>make bundle of violets=It's beautiful, and it smells like a rainy day at the end of a long, hot summer.
+Created in your inventory: bundle of violets
+>l violets
+It's beautiful, and it smells like a rainy day at the end of a long, hot summer.

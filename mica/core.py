@@ -361,7 +361,7 @@ class Mica:
         return Thing(self, id)
 
     def add_thing(self, owner, name):
-        """Create a new thing in the database, named `name' and owned by the Thing (expected to be a Thing instance) `owner', and return a new Thing instance."""
+        """Create a new thing in the database, named `name' and owned by and located in the Thing (expected to be a Thing instance) `owner', and return a new Thing instance."""
         Cx = self._calldb("INSERT INTO things (name, location_id, owner_id) VALUES (?,?,?)", (name, owner.id, owner.id))
         Cx.execute("SELECT last_insert_rowid()")
         results = Cx.fetchall()

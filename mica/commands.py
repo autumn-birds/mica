@@ -1,7 +1,6 @@
 # Command definitions.
 # Watch out, order may be important -- if one command's full name is the beginning of another command's name, make sure the longer command gets declared first.
 
-# TODO: Factor the messages out into their own file.
 from core import texts
 from core import CommandProcessingError
 from core import NotEnoughResultsException
@@ -148,16 +147,29 @@ def implement(m):
         me.move(dest)
         m.on_text(link, "look")
 
+    # Actually not a command, but called by two commands that do almost the same thing but not quite.
+    def try_create_thing(text, maker):
+        parsed = re.match("^([^=]+)(=[^=]+)?$", text)
+        if parsed is None or len(parsed[1].strip()) < 2:
+            return False # User didn't write the command right
+
+        new_thing = m.add_thing(maker, parsed[1])
+        if parsed[2] is not None:
+            # parsed[2] is the =desc... part, and will always start with an =, which we don't want
+            new_thing['desc'] = parsed[2][1:].strip()
+
+        return new_thing
+
     @m.command("make")
     def do_make(link, text):
         me = m.get_thing(m.client_states[link]['character'])
         check_permission(me, PERMISSION_BUILDER)
 
         text = text.strip()
-        if len(text) < 1:
-            raise CommandProcessingError(texts['cmdSyntax'] % 'make name of object')
+        result = try_create_thing(text, me)
+        if result is False:
+            raise CommandProcessingError(texts['cmdSyntax'] % 'make name of object[= desc of object]')
 
-        result = m.add_thing(me, text)
         link.write(m.line(texts['madeThing'] % result.display_name()))
 
     @m.command("build")
@@ -170,14 +182,9 @@ def implement(m):
             do_tel = True
             text = text[2:].strip()
 
-        parsed = re.match("^([^=]+)(=[^=]+)?$", text)
-        if parsed is None or len(parsed[1].strip()) < 2:
+        new_thing = try_create_thing(text, me)
+        if new_thing is False:
             raise CommandProcessingError(texts['cmdSyntax'] % 'build [-t] name of object[=desc of object]')
-
-        new_thing = m.add_thing(me, parsed[1])
-        if parsed[2] is not None:
-            # parsed[2] is the =desc... part, and will always start with an =, which we don't want
-            new_thing['desc'] = parsed[2][1:]
 
         new_thing.move(new_thing)
 
