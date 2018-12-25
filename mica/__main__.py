@@ -12,10 +12,36 @@ import logging
 # Change to INFO or DEBUG for more messages
 logging.basicConfig(level=logging.WARNING)
 
+DEFAULT_HOST="localhost"
+DEFAULT_PORT="7072"
 
 # Options parsing, other initialization, and higher-level server logic.
 # TODO: --help
-(opts, args) = getopt.getopt(sys.argv[1:], '', ['host=', 'port=', 'print-io', 'hide-tracebacks', 'initDB'])
+
+options_accepted = {
+    'host=': 'Specify address to listen on (e.g., localhost, or 0.0.0.0 for everything; default: %s)' % DEFAULT_HOST,
+    'port=': 'Specify port to listen on (default: %s)' % DEFAULT_PORT,
+    'print-io': "Print input/output.",
+    'hide-tracebacks': "Don't show actual tracebacks to users on the MUCK when an error occurs.",
+    'initDB': "Set up first-time records in the database (do not run on an existing database.)",
+    'help': "This message.",
+}
+
+def print_help(stat=0):
+    print("Usage: python3 mica [options ...] <database>")
+    print("   <database> may be a filename or anything sqlite3 accepts, including :memory:.")
+    print("   <database> of :memory: implies --initDB.")
+    print("")
+    print("Options:")
+    for k in sorted(options_accepted.keys()):
+        if k[-1] == '=':
+            print("   --%s<value>: %s" % (k, options_accepted[k]))
+        else:
+            print("   --%s: %s" % (k, options_accepted[k]))
+
+    exit(stat)
+
+(opts, args) = getopt.getopt(sys.argv[1:], '', options_accepted.keys())
 
 _opts = {}
 for pair in opts:
@@ -24,10 +50,22 @@ for pair in opts:
 opts = _opts
 del _opts
 
+if 'help' in opts:
+    print_help()
+
 # TODO: Implement manual switch for creating database to file, + loading arbitrary file on start
-db = sqlite3.connect(":memory:")
+
+if len(args) == 1:
+    targetDB = args[0]
+else:
+    print_help(1)
+
+db = sqlite3.connect(args[0].strip())
 mica = core.Mica(db)
-mica.setup_db()
+if args[0].strip() == ':memory:' or 'initDB' in opts:
+    print("Setting up database...")
+    mica.setup_db()
+    print("Done.")
 
 commands.implement(mica)
 if "hide-tracebacks" not in opts:
@@ -40,7 +78,7 @@ def main():
     server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     server.setblocking(0)
 
-    (host, port) = (opts.get("host", "localhost"), int(opts.get("port", "7072")))
+    (host, port) = (opts.get("host", DEFAULT_HOST), int(opts.get("port", DEFAULT_PORT)))
     logging.info("Listening on %s:%d" % (host, port))
 
     server.bind((host, port))
