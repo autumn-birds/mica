@@ -16,7 +16,6 @@ DEFAULT_HOST="localhost"
 DEFAULT_PORT="7072"
 
 # Options parsing, other initialization, and higher-level server logic.
-# TODO: --help
 
 options_accepted = {
     'host=': 'Specify address to listen on (e.g., localhost, or 0.0.0.0 for everything; default: %s)' % DEFAULT_HOST,
@@ -53,8 +52,6 @@ del _opts
 if 'help' in opts:
     print_help()
 
-# TODO: Implement manual switch for creating database to file, + loading arbitrary file on start
-
 if len(args) == 1:
     targetDB = args[0]
 else:
@@ -63,6 +60,7 @@ else:
 db = sqlite3.connect(args[0].strip())
 mica = core.Mica(db)
 if args[0].strip() == ':memory:' or 'initDB' in opts:
+    # TODO: Check and automatically initialize if it's a new file ....
     print("Setting up database...")
     mica.setup_db()
     print("Done.")
