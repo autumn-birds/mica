@@ -63,6 +63,9 @@ class Thing:
     Most methods you call on this object will access the database directly, but it is still possible to have a Thing instance that does not agree with the database; for example, one whose records in the database don't actually exist.
     If this happens, you will encounter problems."""
     def __init__(self, mica, dbref):
+        """Create. Called by the Mica.get_thing() function.
+
+        Can raise NotEnoughResultsException but probably shouldn't ever raise TooManyResultsException."""
         assert type(mica) is Mica
         self.mica = mica
 
@@ -103,7 +106,7 @@ class Thing:
             return default
 
     def items(self):
-        """Build and return a list of (key, value) pairs representing this object's parameters."""
+        """Build and return a list of (key, value) pairs representing this object's properties."""
         return self.mica._from_db("SELECT name, val FROM properties WHERE object_id=?", (self.id,))
 
     def name(self):
@@ -133,17 +136,17 @@ class Thing:
             self.mica._calldb("UPDATE things SET passage_to=? WHERE id=?", (new_dest.id, self.id))
 
     def location(self):
-        """Return the Thing where this Thing is located; or None if that Thing does not exist in the database."""
-        # (Should this raise an exception instead?)
+        """Return the Thing where this Thing is located, or None if that Thing does not exist in the database."""
         try:
             results = self.mica._one_from_db("SELECT id FROM things WHERE id IN (SELECT location_id FROM things WHERE id = ?)", (self.id,))
         except NotEnoughResultsException:
             return None
-        print("get_location: %d is in %d" % (self.id, results[0]))
+
         return self.mica.get_thing(results[0])
 
     def move(self, to_thing):
         """Move this Thing into another Thing."""
+        # TODO: Rename to set_location for consistency's sake
         self.mica._calldb("UPDATE things SET location_id=? WHERE id=?", (to_thing.id, self.id))
 
     def contents(self):
@@ -164,11 +167,9 @@ class Thing:
 
     def owner(self):
         """Return the Thing that owns this Thing, or None if there isn't any such Thing to be found."""
-        try:
-            owner = self.mica._one_from_db("SELECT owner_id FROM things WHERE id=?", (self.id,))[0]
-            return self.mica.get_thing(owner)
-        except NotEnoughResultsException:
-            return None
+        # If WE don't exist, it is legitimately an error... so we don't try/except this call.
+        owner = self.mica._one_from_db("SELECT owner_id FROM things WHERE id=?", (self.id,))[0]
+        return self.mica.get_thing(owner)
 
     def set_owner(self, other):
         """Change the owner of this Thing to the Thing `other'."""
@@ -205,6 +206,7 @@ class Thing:
         whereami = self.location()
         if whereami is not None:
             # Consider items you're carrying.
+            # We also want to add ourselves to the list, and our location to the list, as otherwise we get baffling messages that suggest those things can't be found, when, clearly, they're RIGHT THERE.
             candidates = self.contents() + [self]
             l = self.location()
             if l is not None:
@@ -256,10 +258,10 @@ class Mica:
         # Some commands have a short alias that triggers them when directly prefixed with their arguments, like a single quote for say or a colon for pose; we deal with that by registering them in this list, which is in the same format as _commands but should typically be much shorter.
         self._prefix_commands = []
 
-        # TODO: Consider trying to replace most or all of the places we are storing object-ids as bare ints, with Thing instances instead.
+        # TODO: Consider trying to replace most or all of the places we are storing object-ids as bare ints, with Thing instances instead??  Thing instances are basically an object-id plus a reference to, hopefully, the mica object that created them.
 
-        # The client_states variable is indexed by 'link' objects, provided by network code, and it keeps track of state for each connection, such as what object it's logged into for a character or whether it's logged in at all.
-        # Since in the future there might be more state that's needed, e.g. to implement the required functionality for editor- or puppet-driving-type systems, or since some commands might want to store state, the values in this dictionary are also dictionaries; the character object the command is connected to is stored under the 'character' key in each dictionary. 
+        # The client_states variable is indexed by 'link' objects, provided by network code, and it keeps track of state for each connection, such as what object it's logged into (the object acts like a character) or whether it's logged in at all.
+        # Since in the future there might be more state that's needed, e.g. to implement the required functionality for editor- or puppet-driving-type systems, or since some commands might want to store state, the values in this dictionary are also dictionaries; the character object the command is connected to is stored under the 'character' key in each dictionary.
         # TODO: Currently the 'character' key is set to -1 to indicate a connection that has not logged in yet. But really it should be None, since I think it might be theoretically possible for negative database indices to exist somehow.
         self.client_states = {}
 
@@ -277,7 +279,7 @@ class Mica:
         self.motd = None
 
     #
-    # Database functions (accessing and updating objects, etc.)
+    # Database access-related functions.
     def setup_db(self):
         """Initialize the database with a minimal default template.
         The result of calling this function when the database already has data in it is undefined."""
@@ -355,10 +357,11 @@ class Mica:
         return acct
 
     def get_thing(self, id):
-        """Return a Thing instance for the id `id', or raise a NotEnoughResultsException if it doesn't exist.
-        Technically might be able to raise a TooManyResultsException, but it should never in practice."""
-        # Does name lookup itself. Can raise NotEnoughResultsException on inextant id
-        return Thing(self, id)
+        """Return a Thing instance for the id `id', if one exists, or None if one doesn't."""
+        try:
+            return Thing(self, id)
+        except NotEnoughResultsException:
+            return None
 
     def add_thing(self, owner, name):
         """Create a new thing in the database, named `name' and owned by and located in the Thing (expected to be a Thing instance) `owner', and return a new Thing instance."""
