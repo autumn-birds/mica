@@ -7,6 +7,11 @@ import sys
 
 TEST_PORT = 1234
 
+# These values control how many times the test client will try to connect to the server before giving up.
+# The server takes time to start up, and the easiest way to account for that is just keep trying to connect for it a little bit until we get a link.
+CONNECT_TRY_SLEEP_INTERVAL = 0.2
+CONNECT_TRIES = 5
+
 # (https://stackoverflow.com/questions/287871/print-in-terminal-with-colors)
 class bcolors:
     HEADER = '\033[95m'
@@ -20,12 +25,24 @@ class bcolors:
 
 def run_test(filename):
     svr = subprocess.Popen(['python3', 'mica', '--port', str(TEST_PORT), '--print-io', ':memory:'])
-    time.sleep(0.2)
+    time.sleep(0.1)
     assert svr.poll() is None
 
-    t = telnetlib.Telnet()
-    t.open("localhost", TEST_PORT)
+    # Try to connect for a bit, but give up eventually.
+    tries = CONNECT_TRIES
+    while True:
+        try:
+            t = telnetlib.Telnet()
+            t.open("localhost", TEST_PORT)
+            break
+        except ConnectionRefusedError:
+            time.sleep(CONNECT_TRY_SLEEP_INTERVAL)
+            tries -= 1
+            if tries == 0:
+                svr.kill()
+                raise
 
+    # Read in the test, write the '>'-prefixed commands to the server, and check that we receive something that equals any line that isn't '>'-prefixed before continuing.
     try:
         with open(filename, 'r') as file:
             for line in file.readlines():
@@ -48,9 +65,10 @@ def run_test(filename):
         print(traceback.format_exc(chain=True))
         return (False, "Exception in test framework")
 
+    # Try to tear things down gracefully.
+    # Sometimes this doesn't work and you're left with a hanging process. :/
     t.close()
     svr.kill()
-    time.sleep(0.1)
     return (True, None)
 
 def files(dir):

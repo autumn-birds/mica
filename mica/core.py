@@ -2,6 +2,9 @@
 
 import logging
 import traceback
+import base64
+import hashlib
+import os # for urandom
 
 
 # Default messages that would otherwise be hard-coded about in the code.
@@ -219,9 +222,10 @@ class Thing:
             except ValueError:
                 return []
 
-            try:
-                return [self.mica.get_thing(dbref)]
-            except NotEnoughResultsException:
+            result = self.mica.get_thing(dbref)
+            if result is not None:
+                return [result]
+            else:
                 return []
 
         whereami = self.location()
@@ -293,21 +297,73 @@ class Account:
         elif id is not None:
             # This is more straightforward as we just have to grab the character-id, and we can even do it in one call.
             assert type(id) is int
-            (self.id, self.char_id) = mica._from_db("SELECT id, character_id FROM accounts WHERE id=?", (id,))
+            (self.id, self.char_id) = mica._one_from_db("SELECT id, character_id FROM accounts WHERE id=?", (id,))
 
     def character(self):
+        """Return the character belonging to this account, or None if it (for some reason) doesn't exist."""
         return self.mica.get_thing(self.char_id)
 
-    def check_password(self, password):
-        assert type(password) is str
-        our_password = self.mica._one_from_db("SELECT password FROM accounts WHERE id=?", (self.id,))[0]
-        # REALLY TODO THIS TIME: Password hashing
-        return our_password == password
+    def _hash(self, password, salt):
+        """Return a cryptographic hash function for `password' and `salt', which must be bytes-like objects.
+        Returns a bytes-like object.
+        Used internally."""
+        # The 250,000 is the number of iterations to run the key derivation algorithm.
+        # Python3 documentation states that "at least 100,000" iterations are recommended "in 2013," so I hope 250,000 will be enough to provide some reasonable security without stalling the whole server for several seconds every time someone logs in.
+        # I chose pbkdf2 because scrypt isn't present in systems that don't have recent enough Python and OpenSSL installations, and I wanted to not have to bother about that.
+        return hashlib.pbkdf2_hmac('sha256', password, salt, 250000)
+
+    def check_password(self, candidate):
+        """Return True if plaintext password `candidate' is the correct password for this account, and False otherwise."""
+        assert type(candidate) is str
+
+        # Returns strings (b64encoded):
+        (hashed_password, salt) = self.mica._one_from_db("SELECT password, salt FROM accounts WHERE id=?", (self.id,))
+
+        # Returns bytes:
+        hashed_password = base64.b64decode(hashed_password)
+        salt = base64.b64decode(salt)
+
+        # Takes bytes, returns bytes:
+        hashed_candidate = self._hash(candidate.encode('utf-8'), salt)
+
+        # ... bytes == bytes
+        return hashed_candidate == hashed_password
 
     def set_password(self, password):
+        """Change the account's password to `password' (given as plaintext.)"""
         assert type(password) is str
-        # ALSO TODO: Password hashing
-        self.mica.call_db("UPDATE accounts SET password=? WHERE id=?", (password, self.id))
+
+        # I think the recommended minimum value is 16, so I used a higher one.
+        # These 'magic numbers' should probably be in configuration variables somewhere...
+        salt = os.urandom(32)
+        hashed_result = self._hash(password.encode('utf-8'), salt)
+
+        password = base64.b64encode(hashed_result).decode('ascii')
+        salt = base64.b64encode(salt).decode('ascii')
+
+        self.mica._calldb("UPDATE accounts SET password=?, salt=? WHERE id=?", (password, salt, self.id))
+
+
+# (Stub. For later)
+class Connection:
+    def __init__(self, mica, link):
+        self.acct_id = None
+        self.mica = mica
+        self.link = link
+
+    def get_state(self, var):
+        # TODO
+        return None
+
+    def set_state(self, var, val):
+        # TODO
+        pass
+
+    def account(self):
+        return self.mica.get_account(self.acct_id())
+
+    def character(self):
+        return self.account().character()
 
 
 class Mica:
@@ -351,17 +407,17 @@ class Mica:
         The result of calling this function when the database already has data in it is undefined."""
         dbSetup = [
           "CREATE TABLE things (id INTEGER PRIMARY KEY, owner_id INTEGER, location_id INTEGER, passage_to NULLABLE INTEGER, name TEXT)",
-          "CREATE TABLE accounts (id INTEGER PRIMARY KEY, character_id INTEGER, password TEXT)",
+          "CREATE TABLE accounts (id INTEGER PRIMARY KEY, character_id INTEGER, password TEXT, salt TEXT)",
           "CREATE TABLE properties (id INTEGER PRIMARY KEY, name TEXT, val TEXT, object_id INTEGER, " +
             "CONSTRAINT noduplicates UNIQUE (object_id, name))",
 
           "INSERT INTO things (id, owner_id, location_id, name) VALUES (1, 1, 2, \"One\")",
           "INSERT INTO properties (object_id, name, val) VALUES (1, \"desc\", \"A nameless, faceless, ageless, gender-neutral, culturally ambiguous embodiment of... well, it's not clear, really.\")",
 
-          "INSERT INTO things (id, owner_id, location_id, name) VALUES (2, 1, 2, \"Nexus\")",
-          "INSERT INTO properties (object_id, name, val) VALUES (2, \"desc\", \"It is a place: that is about all you can be sure of.\")",
+          "INSERT INTO accounts (character_id, password, salt) VALUES (1, \"\", \"\")",
 
-          "INSERT INTO accounts (character_id, password) VALUES (1, \"potrzebie\")"
+          "INSERT INTO things (id, owner_id, location_id, name) VALUES (2, 1, 2, \"Nexus\")",
+          "INSERT INTO properties (object_id, name, val) VALUES (2, \"desc\", \"It is a place: that is about all you can be sure of.\")"
         ]
 
         Cx_setup = self.db.cursor()
@@ -373,6 +429,11 @@ class Mica:
                 raise
         self.db.commit()
         Cx_setup = None
+
+        # Set the password on One's account properly.
+        # We have to create the initial records by hand above because One needs to be object id 1, which is expected to have implicit superuser powers.
+        a_wizard = self.get_account(1)
+        a_wizard.set_password("potrzebie")
 
     def _calldb(self, query, opts=None):
         """Execute a database query `query` with the optional tuple of data `opts` and return the cursor that was used to execute the query, on which, for example, fetchall() or similar methods can be called.
@@ -425,7 +486,7 @@ class Mica:
 
     def get_account(self, id):
         """Return an Account instance for the Account with id `id', if one exists, or None if one doesn't."""
-        assert type(account) is int
+        assert type(id) is int
         try:
             return Account(self, id=id)
         except NotEnoughResultsException:
@@ -441,7 +502,7 @@ class Mica:
 
         char = self.add_thing(name)
         # Here, we set the password to an empty string first because, while we want to use the Account class's set_password method to actually set it, we need the appropriate rows to exist in the database before we can create an Account class in the first place.
-        Cx = self._calldb("INSERT INTO accounts (character_id, password) VALUES (?, ?)", (char.id, ""))
+        Cx = self._calldb("INSERT INTO accounts (character_id, password, salt) VALUES (?, ?, ?)", (char.id, "", ""))
         acct = self.get_account(self._ctx_last_inserted(Cx))
         acct.set_password(password)
         return acct
@@ -453,10 +514,24 @@ class Mica:
         except NotEnoughResultsException:
             return None
 
-    def add_thing(self, owner, name):
-        """Create a new thing in the database, named `name' and owned by and located in the Thing (expected to be a Thing instance) `owner', and return a new Thing instance."""
-        Cx = self._calldb("INSERT INTO things (name, location_id, owner_id) VALUES (?,?,?)", (name, owner.id, owner.id))
-        return self.get_thing(self._ctx_last_inserted(Cx))
+    def add_thing(self, name, owner=None):
+        """Create a new thing in the database, named `name' and owned by and located in the Thing (expected to be a Thing instance) `owner', and return a new Thing instance.
+
+        If `owner' is None, the newly created Thing will own itself."""
+        assert type(owner) is Thing or owner is None
+
+        if owner is not None:
+            Cx = self._calldb("INSERT INTO things (name, location_id, owner_id) VALUES (?,?,?)", (name, owner.id, owner.id))
+            return self.get_thing(self._ctx_last_inserted(Cx))
+        else:
+            # We use fake owner and location values, then reset them when we know our id.
+            Cx = self._calldb("INSERT INTO things (name, location_id, owner_id) VALUES (?,?,?)", (name, 0, 0))
+
+            new_thing = self.get_thing(self._ctx_last_inserted(Cx))
+            new_thing.set_owner(new_thing)
+            new_thing.move(new_thing)
+            return new_thing
+
 
     #
     # Logic for connections and how users interact with the system, including logging in and command processing.

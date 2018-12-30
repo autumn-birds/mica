@@ -14,13 +14,13 @@ def implement(m):
 
     #
     # Convenience functions...
-    def get_int(obj, key):
+    def get_int(obj, key, default=None):
         try:
             return int(obj[key])
         except ValueError:
             raise CommandProcessingError("Couldn't convert parameter %s of object %d to int" % (key, obj.id))
         except KeyError:
-            return None
+            return default
 
     def set_int(obj, key, val):
         assert type(val) is int
@@ -38,7 +38,7 @@ def implement(m):
         if char.id == 1:
             return PERMISSION_WIZARD
 
-        l = char.get('privilege_level', -1)
+        l = get_int(char, 'privilege_level', -1)
         if l is -1:
             l = PERMISSION_GUEST
             char['privilege_level'] = l
@@ -152,7 +152,7 @@ def implement(m):
         if parsed is None or len(parsed[1].strip()) < 2:
             return False # User didn't write the command right
 
-        new_thing = m.add_thing(maker, parsed[1])
+        new_thing = m.add_thing(parsed[1], maker)
         if parsed[2] is not None:
             # parsed[2] is the =desc... part, and will always start with an =, which we don't want
             new_thing['desc'] = parsed[2][1:].strip()
@@ -205,7 +205,7 @@ def implement(m):
         name = parsed[1].strip()
         target = m.pov_get_thing_by_name(link, parsed[2].strip())
 
-        new_thing = m.add_thing(me, name)
+        new_thing = m.add_thing(name, me)
         new_thing.move(me.location())
         new_thing.set_destination(target)
 
