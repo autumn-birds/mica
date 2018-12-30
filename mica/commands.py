@@ -3,7 +3,6 @@
 
 from core import texts
 from core import CommandProcessingError
-from core import NotEnoughResultsException
 import logging
 import re
 
@@ -238,9 +237,8 @@ def implement(m):
         me = m.get_thing(m.client_states[link]['character'])
         check_permission(me, PERMISSION_WIZARD)
 
-        # TODO: Move these messages to where the others are.
         tgt = m.pov_get_thing_by_name(link, text.strip())
-        link.write(m.line(texts['examiningThing'] + tgt.display_name()))
+        link.write(m.line(texts['examiningThing'] % tgt.display_name()))
 
         if tgt.owner() is not None:
             link.write(m.line(texts['thingOwner'] % (tgt.owner().display_name())))
@@ -248,7 +246,7 @@ def implement(m):
             link.write(m.line(texts['thingHasNoOwner']))
 
         for k, v in tgt.items():
-            link.write(texts['thingParameterValue'] % (k, repr(v)))
+            link.write(m.line(texts['thingParameterValue'] % (k, repr(v))))
 
 
     #
