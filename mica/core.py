@@ -34,7 +34,7 @@ texts = {
     'examiningThing': "[== Examining: %s]",
     'thingHasNoOwner': "[!!] %s has no owner.",
     'thingOwner': "[##] Owner: %s",
-    'thingParameterValue': "[##] %s=%s",
+    'thingParameterValue': "%s=%s",
 
     'triedToGoAmbiguousWay': "There's more than one way to go `%s'.",
 
