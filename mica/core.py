@@ -20,6 +20,7 @@ texts = {
     'noPermission': "[!!] You don't have permission to do that.",
 
     'youAreNowhere': "You... erm... don't seem to actually be in a location that exists.  This is, um, honestly, really embarrassing and we're not sure what to do about it.",
+    'youDontExist': "Oh gosh.  You don't seem to exist.  We think someone deleted you, but we're not really sure.  Um... sorry?",
     'descMissing': "You see a strange and unnerving lack of emptiness.",
     'beforeListingObjects': "You can see: ",
     'beforeListingExits': "Obvious exits: ",
@@ -46,15 +47,24 @@ texts = {
 }
 
 
-# These are mainly thrown by mica's database accessors.
-class TooManyResultsException(Exception):
+class MicaException(Exception):
+    """A generic class for custom exceptions thrown by the code."""
     pass
 
-class NotEnoughResultsException(Exception):
+class TooManyResultsException(MicaException):
+    """This exception is thrown by mica's database accessors and by other functions when there are more results than expected."""
     pass
 
-# This is an exception thrown by command functions to report an error and exit at the same time.
-class CommandProcessingError(Exception):
+class NotEnoughResultsException(MicaException):
+    """This exception is thrown by mica's database accessors and by other functions when there are not enough results."""
+    pass
+
+class CommandProcessingError(MicaException):
+    """This is an exception thrown by command functions to report an error and exit at the same time."""
+    pass
+
+class AccountNamingException(MicaException):
+    """This exception is thrown when an attempt is made to create or rename an account or character that would have the same name as another, already existing account or character."""
     pass
 
 
@@ -116,6 +126,11 @@ class Thing:
     def set_name(self, newname):
         """Rename this thing to `newname'."""
         assert type(newname) is str
+        # We want to make it impossible to ever have two Things associated with accounts with the same name.
+        if self.is_character():
+            if self.mica.find_account(newname) is not None:
+                raise AccountNamingException("Refusing to rename character to a name shared with another character")
+
         self.mica._calldb("UPDATE things SET name=? WHERE id=?", (newname, self.id))
 
     def destination(self):
@@ -174,6 +189,12 @@ class Thing:
     def set_owner(self, other):
         """Change the owner of this Thing to the Thing `other'."""
         self.mica._calldb("UPDATE things SET owner_id=? WHERE id=?", (other.id, self.id))
+
+    def is_character(self):
+        """Return True if this object is associated with an Account, and False otherwise."""
+        if len(self.mica._from_db("SELECT id FROM accounts WHERE character_id=?", (self.id,))) > 0:
+            return True
+        return False
 
     def resolve_many_things(self, thing):
         """Returns a list of all the Things that the text string `thing' could possibly match, using the syntax used by commands & players to refer to objects, from the point-of-view of this object.
@@ -244,6 +265,51 @@ class Thing:
                 self.mica.connected_things[thing.id].write(self.mica.line(msg))
 
 
+class Account:
+    """Represents a user account in the Mica database.
+
+    An account is basically the association of an arbitrary object in the database (usually, one that owns itself) with a password; accounts don't really have a name of their own, instead taking their name from whatever Thing they're associated with."""
+    def __init__(self, mica, name=None, id=None):
+        """Create. Called by the Mica.find_account method.
+
+        Can raise NotEnoughResultsException if the account does not exist, but probably should never throw TooManyResultsException. It might, however, if there are ever two or more Things with the same name associated with an account.
+
+        name and id are mutually exclusive, and if both are not None, an exception will be raised.
+        Otherwise, the account will be looked up by name or by id depending on which value has been provided."""
+        if (name is None and id is None) or (name is not None and id is not None):
+            # ^^ actually just (name is None) XOR (id is None)
+            raise MicaException("Caller supplied not enough or multiple ways to look up Account")
+
+        assert type(mica) is Mica
+        self.mica = mica
+
+        if name is not None:
+            # This leads to a sort of backwards-feeling lookup process, where we have to look up the character by name first, then look up the account by its character's id.
+            # (Should we be caching the char_id?  Not if it's ever possible to change someone's character-id, but UNLESS there is a method on this class to change said id, which should be the canonical and only way to do it, I think doing this is okay.)
+            # TODO: See if we can use some kind of join to do this in a single call?
+            assert type(name) is str
+            self.char_id = mica._one_from_db("SELECT id FROM things WHERE name=? AND id IN (SELECT character_id FROM accounts)", (name,))[0]
+            self.id = mica._one_from_db("SELECT id FROM accounts WHERE character_id=?", (self.char_id,))[0]
+        elif id is not None:
+            # This is more straightforward as we just have to grab the character-id, and we can even do it in one call.
+            assert type(id) is int
+            (self.id, self.char_id) = mica._from_db("SELECT id, character_id FROM accounts WHERE id=?", (id,))
+
+    def character(self):
+        return self.mica.get_thing(self.char_id)
+
+    def check_password(self, password):
+        assert type(password) is str
+        our_password = self.mica._one_from_db("SELECT password FROM accounts WHERE id=?", (self.id,))[0]
+        # REALLY TODO THIS TIME: Password hashing
+        return our_password == password
+
+    def set_password(self, password):
+        assert type(password) is str
+        # ALSO TODO: Password hashing
+        self.mica.call_db("UPDATE accounts SET password=? WHERE id=?", (password, self.id))
+
+
 class Mica:
     def __init__(self, db):
         """Setup the class.
@@ -294,8 +360,7 @@ class Mica:
 
           "INSERT INTO things (id, owner_id, location_id, name) VALUES (2, 1, 2, \"Nexus\")",
           "INSERT INTO properties (object_id, name, val) VALUES (2, \"desc\", \"It is a place: that is about all you can be sure of.\")",
-          
-          # TODO: Password hashing
+
           "INSERT INTO accounts (character_id, password) VALUES (1, \"potrzebie\")"
         ]
 
@@ -340,20 +405,45 @@ class Mica:
             logging.info("one_from_db: returning %s" % repr(results[0]))
             return results[0]
 
-    def get_account(self, account):
-        """Return a tuple of (password, objectID) for the given account name, if it exists and is not ambiguous; otherwise, return None."""
-        # TODO: See if we can use some kind of join to do this in a single call.
+    def _ctx_last_inserted(self, ctx):
+        """For the sqlite3 context `ctx', return the rowid of the last item inserted.
+        This method doesn't technically use any data from `self', and it could probably be moved elsewhere if that ever became necessary."""
+        ctx.execute("SELECT last_insert_rowid()")
+        results = ctx.fetchall()
+        assert len(results) == 1
+        return results[0][0]
+
+    #
+    # Functions to create objects in the database, or fetch existing ones, and return an appropriate instance of one of the above classes.
+    def find_account(self, account):
+        """Return an Account instance for the username/character name `account', if one exists, or None if one doesn't."""
         assert type(account) is str
         try:
-            thingid = self._one_from_db("SELECT id FROM things WHERE name=? AND id IN (SELECT character_id FROM accounts)", (account,))
-        except (NotEnoughResultsException, TooManyResultsException):
-            return None
-
-        try:
-            acct = self._one_from_db("SELECT password, character_id FROM accounts WHERE id=?", (thingid[0],))
+            return Account(self, name=account)
         except NotEnoughResultsException:
             return None
 
+    def get_account(self, id):
+        """Return an Account instance for the Account with id `id', if one exists, or None if one doesn't."""
+        assert type(account) is int
+        try:
+            return Account(self, id=id)
+        except NotEnoughResultsException:
+            return None
+
+    def add_account(self, name, password):
+        assert type(name) is str
+        assert type(password) is str
+
+        # Make sure no account with this name already exists; we _really_ don't want duplicates.
+        if self.find_account(name) is not None:
+            raise AccountNamingException("Refusing to create two accounts with the same name")
+
+        char = self.add_thing(name)
+        # Here, we set the password to an empty string first because, while we want to use the Account class's set_password method to actually set it, we need the appropriate rows to exist in the database before we can create an Account class in the first place.
+        Cx = self._calldb("INSERT INTO accounts (character_id, password) VALUES (?, ?)", (char.id, ""))
+        acct = self.get_account(self._ctx_last_inserted(Cx))
+        acct.set_password(password)
         return acct
 
     def get_thing(self, id):
@@ -366,18 +456,19 @@ class Mica:
     def add_thing(self, owner, name):
         """Create a new thing in the database, named `name' and owned by and located in the Thing (expected to be a Thing instance) `owner', and return a new Thing instance."""
         Cx = self._calldb("INSERT INTO things (name, location_id, owner_id) VALUES (?,?,?)", (name, owner.id, owner.id))
-        Cx.execute("SELECT last_insert_rowid()")
-        results = Cx.fetchall()
-        assert len(results) == 1
-        return self.get_thing(results[0][0])
+        return self.get_thing(self._ctx_last_inserted(Cx))
 
     #
     # Logic for connections and how users interact with the system, including logging in and command processing.
+
     # There is no actual network code here; instead, the networking code in the main loop calls these functions with lines of text or on relevant events, passing in objects we understand as 'links'.
     # The implementation details are unspecified, but the link objects must conform to a small API:
     # 1. The objects will always be unique among all links and will never change over the lifetime of the link, making them usable as an index (e.g. for state associated with the connection.)
     # 2. They will support a write() method which takes a chunk of UTF-8 encoded text in a single argument and writes it onto the link; this method will not need to be called multiple times to safely assume the whole text has been sent, will buffer if necessary, and should not block.
+    #       TODO: I want to extend this into a richer write() method that supports metadata (e.g., colors and urls) for implementations that can support those features, while still allowing implementations that can't to easily recover a straightforward plain-text string.
+    #       TODO: I want write() to write a single line at a time thus freeing us of the need to think about calling line().
     # 3. They will support a kill() method that forcefully disconnects the client on the other end of the link. The network code should [I hope] be able to take care of calling on_disconnection() itself in that case.
+
     def line(self, text):
         """Encapsulates the process of adding a proper newline to the end of lines, just in case it ever needs to be changed."""
         # TODO: Get rid of this method and require the write() method to know how to encapsulate lines itself.
@@ -415,6 +506,10 @@ class Mica:
 
         # At this point, we haven't been able to match any command, so we consider whether there could be an exit they are trying to move through, and move them through it if it exists and is not ambiguous.
         char = self.get_thing(s)
+        if char is None:
+            # TODO: Is this the kind of error handling we want?
+            link.write(self.line(texts['youDontExist']))
+            return False
         prospective_exits = []
 
         if char.location() is None:
@@ -439,7 +534,7 @@ class Mica:
             link.write(texts['triedToGoAmbiguousWay'] % text)
             return
 
-        # If we get here, it means we ran out of things to try.
+        # If we get here, it means we ran out of things to try: No command was found, and no exits were found either.
         link.write(self.line(texts['cmd404']))
 
     def call_command(self, link, cmd, text):
@@ -496,25 +591,23 @@ class Mica:
             link.write(self.line(texts['cmdSyntax'] % "connect <username> <password>"))
             return
 
-        acct = self.get_account(args[0])
+        acct = self.find_account(args[0])
         if acct is None:
             link.write(self.line(texts['badLogin']))
             return False
 
-        # Again, TODO: Password hashing
-        if acct[0] == args[1]:
-            #assert self.get_thing(acct[1]) is not None    # TODO: Is this really necessary? It might be a significant performance drop (more database calls, even more if the object has a lot of objects in it), which could matter since malicious users can try to sign in very frequently, and they don't need to authenticate themselves first (duh.)
-            # ... It raises NotEnoughResultsException now, so I just commented it out for now.
+        if acct.check_password(args[1]):
             # Login succeeds...
-            self.client_states[link]['character'] = acct[1]
-            self.connected_things[acct[1]] = link
+            self.client_states[link]['character'] = acct.char_id
+            self.connected_things[acct.char_id] = link
 
             if self.motd is not None:
                 link.write(self.line(self.motd))
             for cmd in self.login_commands:
                 self.on_text(link, cmd)
 
-            char = self.get_thing(acct[1])
+            # acct.character() *could* return None, but this is fairly safe because we had to look up the character in order to find the account in the first place.
+            char = acct.character()
             where = char.location()
             if where is not None:
                 where.tell(texts['characterConnected'] % char.display_name())
@@ -528,7 +621,7 @@ class Mica:
 
     #
     # Interface for adding commands to the system.
-    # (Note that decorators are @ immediately followed by an _expression_: If the expression is just a name, it evaluates to the function named that, but it can also be a function call, in which case python calls that function when evaluating the expression instead. The _result of evaluation_ should be a function, which is called on the function being decorated and returns a new function that effectively replaces it. So this returns a function that is called on the actual function being decorated.)
+    # (Note that decorators are @ immediately followed by an _expression_: If the expression is just a name, it evaluates to the function named that, but it can also be a function call, in which case python calls that function when evaluating the decorator instead. The _result of evaluation_ should be a function, which is called on the function being decorated and returns a new function that effectively replaces it. So this returns a function that is called on the actual function being decorated. Confused yet?)
     def command(self, name):
         """Decorator function. Use like @mica_instance.command("look") on the function implementing the command."""
         # We can capture `name' in a closure.
@@ -545,7 +638,7 @@ class Mica:
         return add_this_command
 
     def pov_get_thing_by_name(self, link, thing):
-        # TODO: This is another of those functions that could be folded into an `Account' class... maybe?
+        # TODO: Move this function to Connection.pov_find_thing()
         """Resolve what Thing a user connected to `link' would be referring to.
         If no object can be found or the result is ambiguous, this function throws a CommandProcessingError; command implementations should only catch this error in order to do any necessary cleanup or revert their actions, and it is strongly encouraged that all resolution be done before doing anything that would need to be reverted in case the objects being resolved did not exist, if possible."""
         assert link in self.client_states
