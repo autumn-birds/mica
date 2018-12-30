@@ -9,12 +9,12 @@ Vagrant.configure("2") do |config|
     config.vm.box = "debian/contrib-testing64"
     config.vm.box_check_update = false
 
-    # Change the [host: nnn] statements to what port you want to connect to from the outside
+    # Change the [host: nnn] statements to what port you want to connect to from the outside.
     config.vm.network "forwarded_port", guest: 7072, host: 7072, host_ip: "127.0.0.1"
     # Make it possible to use an external SSH client.  You still have to do some configuration.
     config.vm.network "forwarded_port", guest: 22, host: 22, host_ip: "127.0.0.1"
 
-    # Runs once, to install dependencies and system service:
+    # Install dependencies.
     config.vm.provision "shell", inline: <<-SHELL
         apt-get update
         apt-get install -y git python3 tf5 tmux sloccount sqlite3
