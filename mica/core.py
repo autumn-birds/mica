@@ -45,6 +45,7 @@ texts = {
     'triedToGoAmbiguousWay': "There's more than one way to go `%s'.",
 
     'characterConnected': "[##] %s has connected.",
+    'characterDisconnected': "[##] %s has disconnected.",
     'characterArrivesThruPassage': "[##] %s emerges, having entered %s elsewhere.",
     'characterDepartsByPassage': "[##] %s exits through the passage %s.",
     'characterSays': "%s says, \"%s\"",
@@ -257,6 +258,7 @@ class Thing:
             return results[0]
 
     def display_name(self):
+        # TODO: Fix calls to this so we have objectids only where it makes sense (e.g. not in 'has connected' methods), and maybe rename this method to something like full_name() or distinct_name() or whatever to make it clearer what it's actually doing.
         """Returns the Thing's name (string) as it should be displayed to users; e.g., with the database number included, for example."""
         return "%s [%d]" % (self.name(), self.id)
 
@@ -653,6 +655,12 @@ class Mica:
         """Called by network code when a connection dies.
         The result of re-using an old link object again once it has been passed to this function is undefined."""
         assert old_link in self.client_states
+
+        # TODO: JUST MAKE IT A THING OR NONE ALREADY GEEZE YOU IDIOT (...maybe?)
+        me = self.get_thing(self.client_states[old_link]['character'])
+        if me != None:
+            me.location().tell(texts['characterDisconnected'] % me.name())
+
         del self.client_states[old_link]
 
         # Get rid of any expired entries in the connected_things index.
