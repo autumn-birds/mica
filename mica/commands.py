@@ -60,7 +60,7 @@ def implement(m):
 
         text = text.strip()
         if len(text) > 0:
-            # This will raise a CommandProcessingError for us if it can't find anything.
+            # This will raise a CommandProcessingError for us, with the appropriate message, if it can't find anything.
             tgt = m.pov_get_thing_by_name(link, text)
         else:
             tgt = me.location()
@@ -144,6 +144,8 @@ def implement(m):
 
         dest = m.pov_get_thing_by_name(link, text)
         me.move(dest)
+        # TODO: This seems a little clumsy.
+        # Maybe a Thing::force() method is called for, instead?
         m.on_text(link, "look")
 
     # Actually not a command, but called by two commands that do almost the same thing but not quite.
@@ -247,6 +249,20 @@ def implement(m):
 
         for k, v in tgt.items():
             link.write(m.line(texts['thingParameterValue'] % (k, repr(v))))
+
+    @m.command("adduser")
+    def do_adduser(link, text):
+        me = m.get_thing(m.client_states[link]['character'])
+        check_permission(me, PERMISSION_WIZARD)
+
+        params = text.strip().split(" ")
+        if len(params) != 2:
+            raise CommandProcessingError(texts['cmdSyntax'] % 'adduser name password')
+
+        resulting_user = m.add_account(params[0], params[1])
+        if me.location() is not None:
+            resulting_user.character().move(me.location())
+        link.write(m.line(texts['addedUser'] % resulting_user.character().display_name()))
 
 
     #

@@ -20,7 +20,9 @@ texts = {
     'cmdErrWithArgs': "[!!] There was a problem processing your command, but the arguments weren't as expected: %s",
     'cmdErrUnspecified': "[!!] There was a problem processing your command, but no explanation has been provided. Please bother your local developers.",
     'err': "[!!] %s",
+
     'noPermission': "[!!] You don't have permission to do that.",
+    'addedUser': "[##] Added user %s (id is for character object)",
 
     'youAreNowhere': "You... erm... don't seem to actually be in a location that exists.  This is, um, honestly, really embarrassing and we're not sure what to do about it.",
     'youDontExist': "Oh gosh.  You don't seem to exist.  We think someone deleted you, but we're not really sure.  Um... sorry?",
@@ -140,6 +142,7 @@ class Thing:
         """If this Thing is not a passage, this value will be None.
         But if it IS a passage, this value will be the id of another Thing (e.g., the one it is an exit to.)"""
         result = self.mica._one_from_db("SELECT passage_to FROM things WHERE id=?", (self.id,))[0]
+        # That could raise NotEnoughResultsException, but if it does, that doesn't mean we didn't find a passage but rather that we don't exist in the database at all; thus, not catching the exception is correct here.
         if result is not None:
             return self.mica.get_thing(result)
         else:
