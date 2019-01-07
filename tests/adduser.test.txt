@@ -1,0 +1,7 @@
+>connect One potrzebie
+>adduser Kandra foxthingfoxpassword
+Added user Kandra
+>adduser K an esoaiefjso eisal jfesaio fjase 
+That command needs to be written similar to
+>adduser
+That command needs to be written similar to
