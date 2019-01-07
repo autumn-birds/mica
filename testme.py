@@ -47,6 +47,8 @@ def run_test(filename):
         with open(filename, 'r') as file:
             for line in file.readlines():
                 line = line.strip()
+                if len(line) < 1:
+                    continue
                 if line[0] == '>':
                     t.write(line[1:].encode("utf-8") + b'\n')
                 else:
