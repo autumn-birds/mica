@@ -1,0 +1,10 @@
+>connect One potrzebie
+>build Second Room
+>open north=#3
+>set #3:desc=A tiny, close room.
+Set
+to
+>north
+Second Room
+A tiny, close room.
+

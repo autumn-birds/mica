@@ -46,8 +46,8 @@ texts = {
 
     'characterConnected': "[##] %s has connected.",
     'characterDisconnected': "[##] %s has disconnected.",
-    'characterArrivesThruPassage': "[##] %s emerges, having entered %s elsewhere.",
-    'characterDepartsByPassage': "[##] %s exits through the passage %s.",
+    'characterArrives': "[##] %s arrives from %s.",
+    'characterDeparts': "[##] %s leaves, heading towards %s.",
     'characterSays': "%s says, \"%s\"",
     'characterPoses': "%s %s",
 }
@@ -171,6 +171,42 @@ class Thing:
         # TODO: Rename to set_location for consistency's sake
         self.mica._calldb("UPDATE things SET location_id=? WHERE id=?", (to_thing.id, self.id))
 
+    def traverse_exit(self, exitname):
+        """Try to move from this Thing's location through exit `exitname' into its target location.
+
+        This function will notify the appropriate Things of arrival/departure using .tell().
+
+        It returns the new location of the object, or the object's current location if movement didn't succeed; it can return None if the object isn't located in an object that exists.
+
+        It will raise NotEnoughResultsException if there are no exits that mach the name, and TooManyResultsException if the name is ambiguous (e.g. more than one exit matches.)"""
+        assert type(exitname) is str
+
+        prospective_exits = []
+
+        fromloc = self.location()
+        if fromloc is None:
+            return None
+
+        # For all exits (an exit is just a Thing with destination set...)
+        for option in [x for x in fromloc.contents() if x.destination() is not None]:
+            if exitname in option.name():
+                prospective_exits.append(option)
+
+        # Only move if there's exactly one thing that could possibly be meant
+        if len(prospective_exits) == 1:
+            toloc = prospective_exits[0].destination()
+            self.location().tell(texts['characterDeparts'] % (self.display_name(), toloc.name()), exclude=[self])
+            self.move(toloc)
+            self.location().tell(texts['characterArrives'] % (self.display_name(), fromloc.name()), exclude=[self])
+
+        elif len(prospective_exits) > 1:
+            raise TooManyResultsException
+
+        elif len(prospective_exits) < 1:
+            raise NotEnoughResultsException
+
+        return toloc
+
     def contents(self):
         """Return a list of Things that are in this Thing."""
         assert type(self.id) is int
@@ -262,15 +298,20 @@ class Thing:
         """Returns the Thing's name (string) as it should be displayed to users; e.g., with the database number included, for example."""
         return "%s [%d]" % (self.name(), self.id)
 
-    def tell(self, msg):
+    def tell(self, msg, exclude=[]):
         """Dispatch a message `msg' to self (if connected) and to all the Things with self as their location."""
         assert type(msg) is str
         msg = msg.strip()
         if len(msg) < 1:
             raise ValueError("msg should be a str with some non-whitespace content")
 
+        # It's much better for the caller to pass Things, but important for us to check ids (and not Things, which could be two different objects with the same database id.)
+        # Transform `exclude' from an array of Things to an array of database ids of Things.
+        exclude = [x.id for x in exclude]
+
+        # Tell all the non-excluded Things the message, if they're connected.
         for thing in self.contents() + [self]:
-            if thing.id in self.mica.connected_things:
+            if thing.id in self.mica.connected_things and thing.id not in exclude:
                 self.mica.connected_things[thing.id].write(self.mica.line(msg))
 
 
@@ -390,6 +431,7 @@ class Mica:
         # The client_states variable is indexed by 'link' objects, provided by network code, and it keeps track of state for each connection, such as what object it's logged into (the object acts like a character) or whether it's logged in at all.
         # Since in the future there might be more state that's needed, e.g. to implement the required functionality for editor- or puppet-driving-type systems, or since some commands might want to store state, the values in this dictionary are also dictionaries; the character object the command is connected to is stored under the 'character' key in each dictionary.
         # TODO: Currently the 'character' key is set to -1 to indicate a connection that has not logged in yet. But really it should be None, since I think it might be theoretically possible for negative database indices to exist somehow.
+        # TODO: See if we can refactor so we use Connection objects to handle state in this class.
         self.client_states = {}
 
         # We need to know who is connected to what objects at any given time, and so we keep track of them by mapping objectid-to-link as well as link-to-state; this is sort of the inverse of client_states.
@@ -590,28 +632,20 @@ class Mica:
             # TODO: Is this the kind of error handling we want?
             link.write(self.line(texts['youDontExist']))
             return False
-        prospective_exits = []
 
         if char.location() is None:
             link.write(self.line(texts['cmd404']))
             return
 
-        for option in [x for x in char.location().contents() if x.destination() is not None]:
-            if text in option.name():
-                prospective_exits.append(option)
-
-        if len(prospective_exits) == 1:
-            char.location().tell(texts['characterDepartsByPassage'] % (char.display_name(), prospective_exits[0].display_name()))
-
-            char.move(prospective_exits[0].destination())
-
-            char.location().tell(texts['characterArrivesThruPassage'] % (char.display_name(), prospective_exits[0].display_name()))
-            # TODO: Should we avoid hard-coding this? (e.g., mechanism similar to on-connect commands)
+        try:
+            char.traverse_exit(text.strip())
             self.on_text(link, "look")
             return
-
-        elif len(prospective_exits) > 1:
-            link.write(texts['triedToGoAmbiguousWay'] % text)
+        except NotEnoughResultsException:
+            # Execution will fall through to a 'that command can't be found' in this case anyway.
+            pass
+        except TooManyResultsException:
+            link.write(self.line(texts['triedToGoAmbiguousWay']))
             return
 
         # If we get here, it means we ran out of things to try: No command was found, and no exits were found either.
