@@ -50,6 +50,8 @@ def run_test(filename):
                 if len(line) < 1:
                     continue
                 if line[0] == '>':
+                    # It's a good idea to consume old data that might be left in the buffer before we do anything. This ensures that a previous command's output won't be tested against what's expected from the most recent command.
+                    t.read_very_eager()
                     t.write(line[1:].encode("utf-8") + b'\n')
                 else:
                     line = line.encode("utf-8")
