@@ -1,6 +1,6 @@
 #!/usr/bin/python3
 
-import sys, getopt
+import sys, getopt, os
 import sqlite3
 import socket, selectors
 
@@ -57,11 +57,21 @@ if len(args) == 1:
 else:
     print_help(1)
 
+# See if the database file we've been asked to use exists; if it doesn't, make sure we initialize it--this could possibly mean we don't need --initDB at all.
+# Take into account the fact that the user could possibly, if they were very silly, have given us a directory.
+dbpath = args[0].strip()
+if os.path.exists(dbpath):
+    if not os.path.isfile(dbpath):
+        print("Error: %s exists and is not a regular file.  It may be a directory.")
+        exit(1)
+else:
+    if 'initDB' not in opts:
+        opts['initDB'] = ""
+
 db = sqlite3.connect(args[0].strip())
 mica = core.Mica(db)
-if args[0].strip() == ':memory:' or 'initDB' in opts:
-    # TODO: Check and automatically initialize if it's a new file ....
-    print("Setting up database...")
+if dbpath == ':memory:' or 'initDB' in opts:
+    print("Setting up database %s..." % dbpath)
     mica.setup_db()
     print("Done.")
 
@@ -71,6 +81,7 @@ if "hide-tracebacks" not in opts:
 
 # The horrible, ugly world of networking code.
 # TODO: SSL support?
+
 def main():
     server = socket.socket()
     server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
